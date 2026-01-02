@@ -8,6 +8,7 @@ import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
 import { getRun, getSelectedRow, saveRun } from "@/lib/engineStore";
+import { saveCase, type SocCase } from "@/lib/caseStore";
 
 type AnyRow = Record<string, any>;
 
@@ -16,12 +17,18 @@ function safeString(v: any) {
   return String(v);
 }
 
-function pickFirst<T = any>(...vals: T[]): T | "" {
+function pickFirst(...vals: any[]) {
   for (const v of vals) {
     const s = safeString(v).trim();
     if (s) return v;
   }
   return "";
+}
+
+function makeCaseId() {
+  // Minimal local ID generation (no backend yet)
+  const n = Math.floor(Math.random() * 9000) + 1000;
+  return `SOC-${new Date().getFullYear()}-${n}`;
 }
 
 export default function InvestigationPage() {
@@ -32,9 +39,26 @@ export default function InvestigationPage() {
 
   const [loadingPivot, setLoadingPivot] = useState<string | null>(null);
 
+  // NEW: case UI state
+  const [caseTitle, setCaseTitle] = useState("");
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
   useEffect(() => {
     setRun(getRun());
-    setRow(getSelectedRow());
+    const r = getSelectedRow();
+    setRow(r);
+
+    // Default case title from row context
+    const d = safeString(
+      pickFirst(r?.DeviceName, r?.Device, r?.Hostname, r?.Computer, r?.Machine)
+    ).trim();
+    const u = safeString(
+      pickFirst(r?.AccountName, r?.UserPrincipalName, r?.User)
+    ).trim();
+
+    setCaseTitle(
+      `Investigation${d ? `: ${d}` : ""}${u ? ` (${u})` : ""}`
+    );
   }, []);
 
   const device = useMemo(() => {
@@ -55,13 +79,21 @@ export default function InvestigationPage() {
   const user = useMemo(() => {
     if (!row) return "";
     return safeString(
-      pickFirst(row.AccountName, row.User, row.user, row.UserPrincipalName, row.InitiatingProcessAccountName)
+      pickFirst(
+        row.AccountName,
+        row.User,
+        row.user,
+        row.UserPrincipalName,
+        row.InitiatingProcessAccountName
+      )
     ).trim();
   }, [row]);
 
   const time = useMemo(() => {
     if (!row) return "";
-    return safeString(pickFirst(row.TimeGenerated, row.Timestamp, row.TimeCreated, row.EventTime)).trim();
+    return safeString(
+      pickFirst(row.TimeGenerated, row.Timestamp, row.TimeCreated, row.EventTime)
+    ).trim();
   }, [row]);
 
   const headline = useMemo(() => {
@@ -91,7 +123,6 @@ export default function InvestigationPage() {
         return;
       }
 
-      // overwrite “last run” with the pivot result (minimal approach)
       saveRun(data);
       router.push("/results");
     } finally {
@@ -100,16 +131,37 @@ export default function InvestigationPage() {
   }
 
   const pivotPrompts = useMemo(() => {
-    // Keep prompts “analyst intent” style (no raw KQL)
     const baseScope = device ? ` on ${device}` : "";
     const userScope = user ? ` for ${user}` : "";
-
     return {
       logons: `Hunt suspicious logons${baseScope}${userScope} in last 24 hours`,
       processes: `Hunt suspicious process activity${baseScope}${userScope} in last 24 hours`,
       network: `Hunt suspicious network connections${baseScope}${userScope} in last 24 hours`,
     };
   }, [device, user]);
+
+  function onSaveCase() {
+    if (!row) return;
+
+    const c: SocCase = {
+      case_id: makeCaseId(),
+      created_at: new Date().toISOString(),
+      status: "open",
+      title: (caseTitle || "New SOC Case").trim(),
+      device,
+      user,
+      time,
+      baseline_note: safeString(run?.baseline_note || ""),
+      findings: Array.isArray(run?.findings) ? run.findings : [],
+      evidence: [row],
+      analyst_notes: [],
+    };
+
+    saveCase(c);
+
+    setSavedMsg(`Saved as ${c.case_id}`);
+    setTimeout(() => setSavedMsg(null), 2500);
+  }
 
   return (
     <Shell>
@@ -133,7 +185,13 @@ export default function InvestigationPage() {
               )}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center flex-wrap">
+              {savedMsg ? (
+                <div className="text-xs text-slate-200 border border-slate-700 bg-slate-200/10 px-3 py-2 rounded-md">
+                  {savedMsg}
+                </div>
+              ) : null}
+
               <button
                 onClick={() => router.push("/results")}
                 className="rounded-md px-4 py-2 text-sm border border-slate-700 bg-slate-200/10 text-slate-100 hover:bg-slate-200/15 transition"
@@ -149,12 +207,39 @@ export default function InvestigationPage() {
             </div>
           ) : (
             <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
-              {/* LEFT: PIVOTS + NOTES */}
-              <div className="border border-[var(--soc-panel-border)] rounded-lg p-4 bg-[#020617]/80 space-y-4">
+              {/* LEFT: PIVOTS + CASE */}
+              <div className="border border-[var(--soc-panel-border)] rounded-lg p-4 bg-[#020617]/80 space-y-5">
+                {/* CASE BOX */}
+                <div className="space-y-2">
+                  <div className="text-sm font-semibold text-slate-200">Case</div>
+                  <div className="text-xs text-slate-400">
+                    Save this investigation as a SOC case (stored locally for now).
+                  </div>
+
+                  <label className="block space-y-1">
+                    <div className="text-xs text-slate-400">Case title</div>
+                    <input
+                      value={caseTitle}
+                      onChange={(e) => setCaseTitle(e.target.value)}
+                      className="w-full rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 outline-none"
+                    />
+                  </label>
+
+                  <button
+                    onClick={onSaveCase}
+                    className="w-full rounded-md px-4 py-2 text-sm border border-slate-700 bg-slate-200/10 text-slate-100 hover:bg-slate-200/15 transition"
+                  >
+                    Save as Case
+                  </button>
+                </div>
+
+                <div className="pt-3 border-t border-slate-800" />
+
+                {/* PIVOTS */}
                 <div>
                   <div className="text-sm font-semibold text-slate-200">Pivot Hunts</div>
                   <div className="text-xs text-slate-400 mt-1">
-                    Run a focused follow-up hunt using the selected row context. (This will load results in the Results page.)
+                    Run a focused follow-up hunt using the selected row context. (Loads in Results page.)
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -202,7 +287,6 @@ export default function InvestigationPage() {
                   </div>
                 </div>
 
-                {/* Optional context from last run */}
                 {run?.baseline_note ? (
                   <div className="pt-3 border-t border-slate-800 space-y-2">
                     <div className="text-sm font-semibold text-slate-200">Baseline note</div>
