@@ -1,38 +1,46 @@
-export type EngineRow = Record<string, any>;
+import React from "react";
 
-export type RunHuntResponse = {
-  query_context?: any;
-  count?: number;
-  columns?: string[];
-  rows?: EngineRow[];
+const RUN_KEY = "soc:lastRun";
+const SELECTED_KEY = "soc:selectedRow";
 
-  baseline_note?: string;
-  pivot_blocks?: string;
-  planner_steps?: any[];
+export type HuntRun = Record<string, any>;
 
-  killchain?: any;
-  escalation?: any;
-
-  findings?: any[];
-
-  // error shape if blocked / failed
-  detail?: any;
-};
-
-const KEY = "soc:lastHunt";
-
-export function saveRun(data: RunHuntResponse) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(KEY, JSON.stringify(data));
+export function saveRun(run: HuntRun) {
+  const payload = {
+    ...run,
+    _savedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(RUN_KEY, JSON.stringify(payload));
 }
 
-export function loadRun(): RunHuntResponse | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(KEY);
+export function getRun(): HuntRun | null {
+  const raw = localStorage.getItem(RUN_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
   } catch {
     return null;
   }
+}
+
+export function clearRun() {
+  localStorage.removeItem(RUN_KEY);
+}
+
+export function saveSelectedRow(row: any) {
+  localStorage.setItem(SELECTED_KEY, JSON.stringify(row));
+}
+
+export function getSelectedRow<T = any>(): T | null {
+  const raw = localStorage.getItem(SELECTED_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function clearSelectedRow() {
+  localStorage.removeItem(SELECTED_KEY);
 }
