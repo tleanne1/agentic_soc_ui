@@ -4,12 +4,11 @@
 import { getCases, SocCase } from "@/lib/caseStore";
 import { getMemorySnapshot, EntityType, EntityKey, MemoryEntity } from "@/lib/socMemory";
 
-// Lateral + MITRE inference
+// lateral + mitre inference
 import { detectLateral } from "@/lib/lateralEngine";
 import { inferMitre } from "@/lib/mitreEngine";
-
-// ✅ NEW: Kill Chain summarizer (uses MITRE + lateral + case text heuristics)
-import { summarizeKillChain, KillChainSummary } from "@/lib/killChainEngine";
+import type { MitreFinding } from "@/lib/mitreEngine";
+import type { LateralFinding } from "@/lib/lateralEngine";
 
 /**
  * Edge = correlation between two entities (device<->user, device<->ip, user<->ip)
@@ -33,9 +32,6 @@ export type CampaignCluster = {
 
   start: string | null;
   end: string | null;
-
-  // ✅ NEW: optional kill chain summary (campaign-level)
-  kill_chain?: KillChainSummary;
 };
 
 export type IntelIndex = {
@@ -43,6 +39,10 @@ export type IntelIndex = {
   entities: Record<string, MemoryEntity>;
   edges: CorrelationEdge[];
   campaigns: CampaignCluster[];
+
+  // ✅ NEW: global inference outputs (for Command Center + future UI)
+  mitreFindings: MitreFinding[];
+  lateralFindings: LateralFinding[];
 };
 
 function safe(v: any) {
@@ -84,12 +84,7 @@ function maxDate(a: string | null, b: string | null) {
 }
 
 /**
- * Build correlation edges from cases:
- * - If a case has device+user, add device<->user
- * - If a case has device+ip, add device<->ip
- * - If a case has user+ip, add user<->ip
- *
- * weight increments each time the pair appears.
+ * Build correlation edges from cases
  */
 function buildEdgesFromCases(cases: SocCase[]): CorrelationEdge[] {
   const map = new Map<string, CorrelationEdge>();
@@ -134,9 +129,7 @@ function buildEdgesFromCases(cases: SocCase[]): CorrelationEdge[] {
 }
 
 /**
- * Naive campaign clustering:
- * Group cases by primary device if available, else user, else fallback bucket.
- * Then attach entities based on observed device/user/ip + memory refs.
+ * Naive campaign clustering
  */
 function buildCampaigns(cases: SocCase[], entities: Record<string, MemoryEntity>): CampaignCluster[] {
   const buckets = new Map<string, SocCase[]>();
@@ -179,7 +172,10 @@ function buildCampaigns(cases: SocCase[], entities: Record<string, MemoryEntity>
     const caseIds = list.map((c) => safe(c.case_id));
     const entitiesArr = Array.from(entitySet.values());
 
-    const risk = Math.max(maxRisk(entities, entitiesArr), Math.min(75, Math.max(0, caseIds.length * 7)));
+    const risk = Math.max(
+      maxRisk(entities, entitiesArr),
+      Math.min(75, Math.max(0, caseIds.length * 7))
+    );
 
     const campaignId = `CMP-${n++}`;
     const title = `Cluster: ${bucketKey}`;
@@ -209,39 +205,22 @@ export function buildIntelIndex(): IntelIndex {
   const edges = buildEdgesFromCases(cases);
   const campaigns = buildCampaigns(cases, entities);
 
-  // -----------------------------
-  // MITRE inference + lateral movement
-  // -----------------------------
+  // ✅ NEW: MITRE inference + lateral movement
   const mitreFindings = cases.flatMap(inferMitre);
   const lateralFindings = detectLateral(cases);
 
-  // -----------------------------
-  // Campaign risk escalation + kill chain attach
-  // -----------------------------
+  // ✅ Campaign risk escalation (still inference-only)
   campaigns.forEach((c) => {
-    // 1) Escalate campaign risk if lateral movement is detected inside that campaign cluster
     const hasLateral = lateralFindings.some((l) => {
       const fromKey = `device:${safe(l.from).trim()}` as any;
       const toKey = `device:${safe(l.to).trim()}` as any;
       return c.entities.includes(fromKey) && c.entities.includes(toKey);
     });
+
     if (hasLateral) c.risk += 30;
-
-    // 2) Attach kill chain summary for this campaign (scoped to campaign devices)
-    const restrictDevices = c.entities
-      .filter((k) => String(k).startsWith("device:"))
-      .map((k) => String(k).split(":").slice(1).join(":"))
-      .filter(Boolean);
-
-    c.kill_chain = summarizeKillChain({
-      cases,
-      mitreFindings,
-      lateralFindings,
-      restrictDevices,
-    });
   });
 
-  return { cases, entities, edges, campaigns };
+  return { cases, entities, edges, campaigns, mitreFindings, lateralFindings };
 }
 
 /**
@@ -269,10 +248,9 @@ export function scoreSearch(index: IntelIndex, query: string): any[] {
       .toLowerCase();
 
     if (hay.includes(q)) {
-      const score = 25;
       hits.push({
         type: "case",
-        score,
+        score: 25,
         case_id: c.case_id,
         title: c.title,
         meta: `status:${c.status} • device:${safe((c as any).device)} • user:${safe((c as any).user)} • created:${safe(
