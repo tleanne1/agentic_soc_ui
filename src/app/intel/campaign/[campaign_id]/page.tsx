@@ -10,6 +10,8 @@ import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
 import { buildIntelIndex, IntelIndex } from "@/lib/intelEngine";
+import { summarizeKillChain } from "@/lib/killChainEngine";
+import { buildSocDecisions } from "@/lib/decisionEngine";
 
 function safe(v: any) {
   if (v === null || v === undefined) return "";
@@ -20,17 +22,35 @@ function uniq<T>(arr: T[]) {
   return Array.from(new Set(arr));
 }
 
+function pill(txt: string, key?: string) {
+  return (
+    <span
+      key={key || txt}
+      className="inline-flex items-center rounded border border-slate-700 bg-slate-200/10 px-2 py-0.5 text-[11px] text-slate-200"
+    >
+      {txt}
+    </span>
+  );
+}
+
+function priorityBadge(p: string) {
+  const base =
+    "inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap";
+  if (p === "CRITICAL") return <span className={`${base} border-red-600/60 bg-red-500/10 text-red-200`}>CRITICAL</span>;
+  if (p === "HIGH") return <span className={`${base} border-orange-600/60 bg-orange-500/10 text-orange-200`}>HIGH</span>;
+  if (p === "MEDIUM") return <span className={`${base} border-yellow-600/60 bg-yellow-500/10 text-yellow-200`}>MEDIUM</span>;
+  return <span className={`${base} border-slate-600 bg-slate-200/10 text-slate-200`}>LOW</span>;
+}
+
 export default function CampaignDetailsPage() {
   const router = useRouter();
   const params = useParams<{ campaign_id: string }>();
 
   const campaignId = params?.campaign_id;
-
   const [index, setIndex] = useState<IntelIndex | null>(null);
 
   useEffect(() => {
-    const idx = buildIntelIndex();
-    setIndex(idx);
+    setIndex(buildIntelIndex());
   }, []);
 
   const campaign = useMemo(() => {
@@ -38,14 +58,12 @@ export default function CampaignDetailsPage() {
     return index.campaigns.find((c: any) => String(c.campaign_id) === String(campaignId)) || null;
   }, [index, campaignId]);
 
-  // Pull related cases
   const cases = useMemo(() => {
     if (!index || !campaign) return [];
     const ids = new Set<string>((campaign.case_ids || []).map((x: any) => String(x)));
     return index.cases.filter((c: any) => ids.has(String(c.case_id)));
   }, [index, campaign]);
 
-  // Pull edges that involve any entity in this campaign
   const relatedEdges = useMemo(() => {
     if (!index || !campaign) return [];
     const entities = new Set<string>((campaign.entities || []).map((e: any) => String(e)));
@@ -57,7 +75,6 @@ export default function CampaignDetailsPage() {
     });
   }, [index, campaign]);
 
-  // Derive a few useful rollups
   const entityTypes = useMemo(() => {
     if (!campaign) return [];
     const types = (campaign.entities || []).map((k: any) => String(k).split(":")[0] || "unknown");
@@ -65,8 +82,31 @@ export default function CampaignDetailsPage() {
   }, [campaign]);
 
   const killChain = useMemo(() => {
-    return (campaign as any)?.kill_chain || null;
-  }, [campaign]);
+    if (!index || !campaign) return null;
+
+    const devices = (campaign.entities || [])
+      .map((k: any) => String(k))
+      .filter((k: string) => k.startsWith("device:"))
+      .map((k: string) => k.split(":").slice(1).join(":"));
+
+    return summarizeKillChain({
+      cases,
+      mitreFindings: index.mitreFindings,
+      lateralFindings: index.lateralFindings,
+      restrictDevices: devices,
+    });
+  }, [index, campaign, cases]);
+
+  const decisions = useMemo(() => {
+    if (!index || !campaign) return [];
+    return buildSocDecisions({
+      scope: "campaign",
+      index,
+      killChain,
+      campaign,
+      cases,
+    });
+  }, [index, campaign, killChain, cases]);
 
   if (!index) {
     return (
@@ -124,8 +164,7 @@ export default function CampaignDetailsPage() {
                 {campaign.campaign_id} — {campaign.title}
               </h1>
               <div className="text-sm text-slate-300 mt-1">
-                risk:{campaign.risk} • cases:{(campaign.case_ids || []).length} • entities:
-                {(campaign.entities || []).length}
+                risk:{campaign.risk} • cases:{(campaign.case_ids || []).length} • entities:{(campaign.entities || []).length}
               </div>
               <div className="text-xs text-slate-400 mt-1">
                 {safe(campaign.start)} → {safe(campaign.end)}
@@ -173,126 +212,135 @@ export default function CampaignDetailsPage() {
             </div>
           </div>
 
-          {/* ✅ KILL CHAIN (NEW) */}
+          {/* ✅ Campaign Kill Chain Summary */}
           <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-sm font-semibold">Kill Chain Summary</div>
-                <div className="text-xs text-slate-400 mt-0.5">
-                  Inference-only. No automated actions or isolation.
-                </div>
+                <div className="text-sm font-semibold text-slate-100">Kill Chain Summary</div>
+                <div className="text-xs text-slate-400 mt-1">Inference-only. No automated actions or isolation.</div>
               </div>
-
-              <div className="text-xs text-slate-300">
-                Confidence:{" "}
-                <span className="font-semibold">{safe(killChain?.confidence ?? 0)}%</span>
+              <div className="text-sm text-slate-200">
+                Confidence: <span className="font-semibold">{safe(killChain?.confidence ?? 0)}%</span>
               </div>
             </div>
 
-            {!killChain ? (
-              <div className="text-sm text-slate-300">
-                No kill chain inference available yet (add a case with richer text like “password spray”, “RDP”, “powershell”, “C2”, etc.).
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                <div className="text-xs text-slate-400">Stages observed</div>
+                <div className="text-sm text-slate-200 mt-1 flex flex-wrap gap-1">
+                  {(killChain?.stages?.length ? killChain.stages : ["(none)"]).map((s: any) =>
+                    pill(String(s), `kc-stage-${String(s)}`)
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Stages */}
-                <div className="rounded border border-slate-800 bg-[#050A14] p-3">
-                  <div className="text-xs text-slate-400 mb-2">Stages observed</div>
 
-                  {Array.isArray(killChain.stages) && killChain.stages.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {killChain.stages.map((s: string) => (
-                        <span
-                          key={s}
-                          className="rounded border border-slate-700 bg-slate-200/10 px-2 py-1 text-xs text-slate-100"
-                        >
-                          {s}
-                        </span>
+              <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                <div className="text-xs text-slate-400">Current stage</div>
+                <div className="text-sm text-slate-200 mt-1">
+                  {killChain?.current_stage
+                    ? pill(killChain.current_stage, `kc-cur-${killChain.current_stage}`)
+                    : pill("(unknown)", "kc-cur-unknown")}
+                </div>
+
+                <div className="text-xs text-slate-400 mt-3">Next likely</div>
+                <div className="text-sm text-slate-200 mt-1 flex flex-wrap gap-1">
+                  {(killChain?.next_likely?.length ? killChain.next_likely : ["(none)"]).map((s: any) =>
+                    pill(String(s), `kc-next-${String(s)}`)
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                <div className="text-xs text-slate-400">MITRE techniques</div>
+                <div className="text-sm text-slate-200 mt-1 flex flex-wrap gap-1">
+                  {(killChain?.evidence?.mitre_techniques?.length
+                    ? killChain.evidence.mitre_techniques.slice(0, 10)
+                    : ["(none)"]
+                  ).map((t: any) => pill(String(t), `kc-mitre-${String(t)}`))}
+                </div>
+
+                <div className="text-xs text-slate-400 mt-3">Lateral movement</div>
+                <div className="text-sm text-slate-200 mt-1">
+                  {killChain?.evidence?.lateral_moves?.length ? (
+                    <div className="space-y-1">
+                      {killChain.evidence.lateral_moves.slice(0, 5).map((m: any, i: number) => (
+                        <div key={`kc-lat-${i}-${safe(m.from)}-${safe(m.to)}`} className="text-xs text-slate-200">
+                          {pill(`${safe(m.from)} → ${safe(m.to)}`, `kc-latpill-${i}-${safe(m.from)}-${safe(m.to)}`)}{" "}
+                          <span className="text-slate-400">({safe(m.user)})</span>
+                        </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="text-sm text-slate-300">(none)</div>
-                  )}
-
-                  <div className="text-xs text-slate-400 mt-3">
-                    Current stage:{" "}
-                    <span className="text-slate-200 font-semibold">
-                      {safe(killChain.current_stage) || "-"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Next likely */}
-                <div className="rounded border border-slate-800 bg-[#050A14] p-3">
-                  <div className="text-xs text-slate-400 mb-2">Next likely</div>
-
-                  {Array.isArray(killChain.next_likely) && killChain.next_likely.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {killChain.next_likely.map((s: string) => (
-                        <span
-                          key={s}
-                          className="rounded border border-slate-700 bg-slate-200/10 px-2 py-1 text-xs text-slate-100"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-300">(none)</div>
+                    <div className="text-xs text-slate-400">(none)</div>
                   )}
                 </div>
+              </div>
+            </div>
 
-                {/* Evidence */}
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded border border-slate-800 bg-[#050A14] p-3">
-                    <div className="text-xs text-slate-400 mb-2">MITRE techniques</div>
-                    {Array.isArray(killChain?.evidence?.mitre_techniques) &&
-                    killChain.evidence.mitre_techniques.length ? (
-                      <div className="text-xs text-slate-200 break-words">
-                        {killChain.evidence.mitre_techniques.slice(0, 12).join(" • ")}
-                        {killChain.evidence.mitre_techniques.length > 12 ? " …" : ""}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-slate-300">(none)</div>
-                    )}
+            <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+              <div className="text-xs text-slate-400">Signals</div>
+              <ul className="mt-2 space-y-1 text-sm text-slate-200 list-disc pl-5">
+                {(killChain?.evidence?.signals?.length ? killChain.evidence.signals : ["No signals available."]).map(
+                  (s: any, i: number) => (
+                    <li key={`kc-sig-${i}`}>{String(s)}</li>
+                  )
+                )}
+              </ul>
+            </div>
+          </div>
+
+          {/* ✅ SOC Decision Engine (campaign-scoped) */}
+          <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-slate-100">SOC Decision Engine</div>
+                <div className="text-xs text-slate-400 mt-1">Recommendations only — no automated actions, no isolation.</div>
+              </div>
+              <div className="text-xs text-slate-400">Scope: {campaign.campaign_id}</div>
+            </div>
+
+            <div className="space-y-2">
+              {decisions.map((d) => (
+                <div key={d.id} className="rounded border border-slate-800 bg-[#050A14] p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-sm text-slate-200 font-semibold">{d.title}</div>
+                    {priorityBadge(d.priority)}
                   </div>
 
-                  <div className="rounded border border-slate-800 bg-[#050A14] p-3">
-                    <div className="text-xs text-slate-400 mb-2">Lateral movement</div>
-                    {Array.isArray(killChain?.evidence?.lateral_moves) &&
-                    killChain.evidence.lateral_moves.length ? (
-                      <div className="space-y-1">
-                        {killChain.evidence.lateral_moves.slice(0, 6).map((m: any, i: number) => (
-                          <div key={i} className="text-xs text-slate-200">
-                            {safe(m.user) || "user"}:{" "}
-                            <span className="font-semibold">{safe(m.from)}</span> →{" "}
-                            <span className="font-semibold">{safe(m.to)}</span>
-                          </div>
-                        ))}
-                        {killChain.evidence.lateral_moves.length > 6 ? (
-                          <div className="text-xs text-slate-400">…more hops hidden</div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-slate-300">(none)</div>
-                    )}
-                  </div>
+                  <div className="text-xs text-slate-400">Rationale</div>
+                  <ul className="text-sm text-slate-200 list-disc pl-5 space-y-1">
+                    {d.rationale.map((r, i) => (
+                      <li key={`${d.id}-r-${i}`}>{r}</li>
+                    ))}
+                  </ul>
 
-                  <div className="rounded border border-slate-800 bg-[#050A14] p-3">
-                    <div className="text-xs text-slate-400 mb-2">Signals</div>
-                    {Array.isArray(killChain?.evidence?.signals) && killChain.evidence.signals.length ? (
-                      <ul className="list-disc pl-5 text-xs text-slate-200 space-y-1">
-                        {killChain.evidence.signals.slice(0, 6).map((s: string, i: number) => (
-                          <li key={i}>{s}</li>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="text-xs text-slate-400">Suggested analyst actions</div>
+                      <ul className="text-sm text-slate-200 list-disc pl-5 space-y-1 mt-1">
+                        {d.suggested_actions.map((a, i) => (
+                          <li key={`${d.id}-a-${i}`}>{a}</li>
                         ))}
                       </ul>
-                    ) : (
-                      <div className="text-sm text-slate-300">(none)</div>
-                    )}
+                    </div>
+
+                    <div>
+                      <div className="text-xs text-slate-400">Suggested hunts</div>
+                      <ul className="text-sm text-slate-200 list-disc pl-5 space-y-1 mt-1">
+                        {d.suggested_hunts.map((h, i) => (
+                          <li key={`${d.id}-h-${i}`}>{h}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-slate-400">Guardrails</div>
+                  <div className="flex flex-wrap gap-1">
+                    {d.guardrails.map((g, i) => pill(g, `${d.id}-g-${i}`))}
                   </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
 
           {/* CASES */}
@@ -302,10 +350,7 @@ export default function CampaignDetailsPage() {
             {cases.length ? (
               <div className="space-y-2">
                 {cases.map((c: any) => (
-                  <div
-                    key={c.case_id}
-                    className="relative rounded border border-slate-800 bg-[#050A14] p-3"
-                  >
+                  <div key={c.case_id} className="relative rounded border border-slate-800 bg-[#050A14] p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="font-semibold text-slate-100">
@@ -379,20 +424,17 @@ export default function CampaignDetailsPage() {
             {relatedEdges.length ? (
               <div className="space-y-2">
                 {relatedEdges.slice(0, 50).map((e: any, i: number) => (
-                  <div key={i} className="rounded border border-slate-800 bg-[#050A14] p-3">
+                  <div key={`edge-${i}-${safe(e?.edge_id)}`} className="rounded border border-slate-800 bg-[#050A14] p-3">
                     <div className="text-sm text-slate-200">
                       <span className="font-semibold">{safe(e?.a)}</span> ↔{" "}
                       <span className="font-semibold">{safe(e?.b)}</span>
                     </div>
                     <div className="text-xs text-slate-400 mt-1">
-                      weight:{safe(e?.weight ?? "-")} • last:{safe(e?.last_seen ?? "-")} • examples:
-                      {safe((e?.examples || []).slice(0, 3).join(", "))}
+                      weight:{safe(e?.weight ?? "-")} • last:{safe(e?.last_seen ?? "-")} • examples:{safe((e?.examples || []).slice(0, 3).join(", "))}
                     </div>
                   </div>
                 ))}
-                {relatedEdges.length > 50 ? (
-                  <div className="text-xs text-slate-400">Showing first 50 edges.</div>
-                ) : null}
+                {relatedEdges.length > 50 ? <div className="text-xs text-slate-400">Showing first 50 edges.</div> : null}
               </div>
             ) : (
               <div className="text-sm text-slate-400">(none)</div>
