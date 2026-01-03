@@ -4,9 +4,12 @@
 import { getCases, SocCase } from "@/lib/caseStore";
 import { getMemorySnapshot, EntityType, EntityKey, MemoryEntity } from "@/lib/socMemory";
 
-// NEW: lateral + mitre inference
+// Lateral + MITRE inference
 import { detectLateral } from "@/lib/lateralEngine";
 import { inferMitre } from "@/lib/mitreEngine";
+
+// ✅ NEW: Kill Chain summarizer (uses MITRE + lateral + case text heuristics)
+import { summarizeKillChain, KillChainSummary } from "@/lib/killChainEngine";
 
 /**
  * Edge = correlation between two entities (device<->user, device<->ip, user<->ip)
@@ -30,6 +33,9 @@ export type CampaignCluster = {
 
   start: string | null;
   end: string | null;
+
+  // ✅ NEW: optional kill chain summary (campaign-level)
+  kill_chain?: KillChainSummary;
 };
 
 export type IntelIndex = {
@@ -173,10 +179,7 @@ function buildCampaigns(cases: SocCase[], entities: Record<string, MemoryEntity>
     const caseIds = list.map((c) => safe(c.case_id));
     const entitiesArr = Array.from(entitySet.values());
 
-    const risk = Math.max(
-      maxRisk(entities, entitiesArr),
-      Math.min(75, Math.max(0, caseIds.length * 7))
-    );
+    const risk = Math.max(maxRisk(entities, entitiesArr), Math.min(75, Math.max(0, caseIds.length * 7)));
 
     const campaignId = `CMP-${n++}`;
     const title = `Cluster: ${bucketKey}`;
@@ -207,24 +210,36 @@ export function buildIntelIndex(): IntelIndex {
   const campaigns = buildCampaigns(cases, entities);
 
   // -----------------------------
-  // NEW: MITRE inference + lateral movement → campaign risk escalation
+  // MITRE inference + lateral movement
   // -----------------------------
-  const mitreFindings = cases.flatMap(inferMitre); // currently not returned, but computed for future UI use
+  const mitreFindings = cases.flatMap(inferMitre);
   const lateralFindings = detectLateral(cases);
 
-  // Escalate campaign risk if lateral movement is detected inside that campaign cluster
+  // -----------------------------
+  // Campaign risk escalation + kill chain attach
+  // -----------------------------
   campaigns.forEach((c) => {
+    // 1) Escalate campaign risk if lateral movement is detected inside that campaign cluster
     const hasLateral = lateralFindings.some((l) => {
       const fromKey = `device:${safe(l.from).trim()}` as any;
       const toKey = `device:${safe(l.to).trim()}` as any;
       return c.entities.includes(fromKey) && c.entities.includes(toKey);
     });
-
     if (hasLateral) c.risk += 30;
-  });
 
-  // If you have lint warnings for unused findings:
-  void mitreFindings;
+    // 2) Attach kill chain summary for this campaign (scoped to campaign devices)
+    const restrictDevices = c.entities
+      .filter((k) => String(k).startsWith("device:"))
+      .map((k) => String(k).split(":").slice(1).join(":"))
+      .filter(Boolean);
+
+    c.kill_chain = summarizeKillChain({
+      cases,
+      mitreFindings,
+      lateralFindings,
+      restrictDevices,
+    });
+  });
 
   return { cases, entities, edges, campaigns };
 }

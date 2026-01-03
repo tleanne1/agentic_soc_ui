@@ -64,6 +64,10 @@ export default function CampaignDetailsPage() {
     return uniq(types).sort((a, b) => a.localeCompare(b));
   }, [campaign]);
 
+  const killChain = useMemo(() => {
+    return (campaign as any)?.kill_chain || null;
+  }, [campaign]);
+
   if (!index) {
     return (
       <Shell>
@@ -169,6 +173,128 @@ export default function CampaignDetailsPage() {
             </div>
           </div>
 
+          {/* ✅ KILL CHAIN (NEW) */}
+          <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Kill Chain Summary</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Inference-only. No automated actions or isolation.
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-300">
+                Confidence:{" "}
+                <span className="font-semibold">{safe(killChain?.confidence ?? 0)}%</span>
+              </div>
+            </div>
+
+            {!killChain ? (
+              <div className="text-sm text-slate-300">
+                No kill chain inference available yet (add a case with richer text like “password spray”, “RDP”, “powershell”, “C2”, etc.).
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Stages */}
+                <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                  <div className="text-xs text-slate-400 mb-2">Stages observed</div>
+
+                  {Array.isArray(killChain.stages) && killChain.stages.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {killChain.stages.map((s: string) => (
+                        <span
+                          key={s}
+                          className="rounded border border-slate-700 bg-slate-200/10 px-2 py-1 text-xs text-slate-100"
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-300">(none)</div>
+                  )}
+
+                  <div className="text-xs text-slate-400 mt-3">
+                    Current stage:{" "}
+                    <span className="text-slate-200 font-semibold">
+                      {safe(killChain.current_stage) || "-"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Next likely */}
+                <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                  <div className="text-xs text-slate-400 mb-2">Next likely</div>
+
+                  {Array.isArray(killChain.next_likely) && killChain.next_likely.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {killChain.next_likely.map((s: string) => (
+                        <span
+                          key={s}
+                          className="rounded border border-slate-700 bg-slate-200/10 px-2 py-1 text-xs text-slate-100"
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-300">(none)</div>
+                  )}
+                </div>
+
+                {/* Evidence */}
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                    <div className="text-xs text-slate-400 mb-2">MITRE techniques</div>
+                    {Array.isArray(killChain?.evidence?.mitre_techniques) &&
+                    killChain.evidence.mitre_techniques.length ? (
+                      <div className="text-xs text-slate-200 break-words">
+                        {killChain.evidence.mitre_techniques.slice(0, 12).join(" • ")}
+                        {killChain.evidence.mitre_techniques.length > 12 ? " …" : ""}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-300">(none)</div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                    <div className="text-xs text-slate-400 mb-2">Lateral movement</div>
+                    {Array.isArray(killChain?.evidence?.lateral_moves) &&
+                    killChain.evidence.lateral_moves.length ? (
+                      <div className="space-y-1">
+                        {killChain.evidence.lateral_moves.slice(0, 6).map((m: any, i: number) => (
+                          <div key={i} className="text-xs text-slate-200">
+                            {safe(m.user) || "user"}:{" "}
+                            <span className="font-semibold">{safe(m.from)}</span> →{" "}
+                            <span className="font-semibold">{safe(m.to)}</span>
+                          </div>
+                        ))}
+                        {killChain.evidence.lateral_moves.length > 6 ? (
+                          <div className="text-xs text-slate-400">…more hops hidden</div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-300">(none)</div>
+                    )}
+                  </div>
+
+                  <div className="rounded border border-slate-800 bg-[#050A14] p-3">
+                    <div className="text-xs text-slate-400 mb-2">Signals</div>
+                    {Array.isArray(killChain?.evidence?.signals) && killChain.evidence.signals.length ? (
+                      <ul className="list-disc pl-5 text-xs text-slate-200 space-y-1">
+                        {killChain.evidence.signals.slice(0, 6).map((s: string, i: number) => (
+                          <li key={i}>{s}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="text-sm text-slate-300">(none)</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* CASES */}
           <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-2">
             <div className="text-sm font-semibold">Cases in this campaign</div>
@@ -259,7 +385,8 @@ export default function CampaignDetailsPage() {
                       <span className="font-semibold">{safe(e?.b)}</span>
                     </div>
                     <div className="text-xs text-slate-400 mt-1">
-                      weight:{safe(e?.weight ?? "-")} • last:{safe(e?.last_seen ?? "-")} • examples:{safe((e?.examples || []).slice(0, 3).join(", "))}
+                      weight:{safe(e?.weight ?? "-")} • last:{safe(e?.last_seen ?? "-")} • examples:
+                      {safe((e?.examples || []).slice(0, 3).join(", "))}
                     </div>
                   </div>
                 ))}
