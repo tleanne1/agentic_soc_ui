@@ -92,8 +92,6 @@ export function getMemory(): MemoryState {
 
 /**
  * ✅ Intel Engine expects this exact export name.
- * Snapshot = safe read-only view (still localStorage),
- * but returns the same structure as getMemory().
  */
 export function getMemorySnapshot(): MemoryState {
   return readState();
@@ -114,8 +112,19 @@ export function recordObservation(obs: Observation) {
   const state = readState();
   const t = nowIso();
 
-  const tags = Array.isArray(obs.tags) ? obs.tags.filter(Boolean) : [];
+  const rawTags = Array.isArray(obs.tags) ? obs.tags.filter(Boolean) : [];
+  const tags = rawTags.map((x) => safeStr(x).trim()).filter(Boolean);
+
   const bump = Number(obs.riskBump ?? 0);
+
+  // NEW: identify ATT&CK technique tags like "T1110", "T1078", etc.
+  const mitreTags = tags.filter((tag) => /^T\d{4,5}$/i.test(tag));
+
+  const mergeTags = (existing: string[], incoming: string[]) =>
+    Array.from(new Set([...(existing || []), ...(incoming || [])]));
+
+  const mergeCaseRefs = (existing: string[], incoming: string[]) =>
+    Array.from(new Set([...(existing || []), ...(incoming || [])]));
 
   // Device
   if (obs.device) {
@@ -123,8 +132,12 @@ export function recordObservation(obs: Observation) {
     e.first_seen = e.first_seen || t;
     e.last_seen = t;
     e.risk = Math.max(0, e.risk + bump);
-    e.tags = Array.from(new Set([...e.tags, ...tags]));
-    if (obs.caseId) e.case_refs = Array.from(new Set([...e.case_refs, obs.caseId]));
+
+    // Normal tags + ensure MITRE tags are retained (no dupes)
+    e.tags = mergeTags(e.tags, tags);
+    if (mitreTags.length) e.tags = mergeTags(e.tags, mitreTags);
+
+    if (obs.caseId) e.case_refs = mergeCaseRefs(e.case_refs, [obs.caseId]);
   }
 
   // User
@@ -133,8 +146,11 @@ export function recordObservation(obs: Observation) {
     e.first_seen = e.first_seen || t;
     e.last_seen = t;
     e.risk = Math.max(0, e.risk + bump);
-    e.tags = Array.from(new Set([...e.tags, ...tags]));
-    if (obs.caseId) e.case_refs = Array.from(new Set([...e.case_refs, obs.caseId]));
+
+    e.tags = mergeTags(e.tags, tags);
+    if (mitreTags.length) e.tags = mergeTags(e.tags, mitreTags);
+
+    if (obs.caseId) e.case_refs = mergeCaseRefs(e.case_refs, [obs.caseId]);
   }
 
   // IP
@@ -143,10 +159,12 @@ export function recordObservation(obs: Observation) {
     e.first_seen = e.first_seen || t;
     e.last_seen = t;
     e.risk = Math.max(0, e.risk + bump);
-    e.tags = Array.from(new Set([...e.tags, ...tags]));
-    if (obs.caseId) e.case_refs = Array.from(new Set([...e.case_refs, obs.caseId]));
+
+    e.tags = mergeTags(e.tags, tags);
+    if (mitreTags.length) e.tags = mergeTags(e.tags, mitreTags);
+
+    if (obs.caseId) e.case_refs = mergeCaseRefs(e.case_refs, [obs.caseId]);
   }
 
   writeState(state);
 }
-
