@@ -1,101 +1,152 @@
 // src/lib/socMemory.ts
-export type SocEntityType = "device" | "user" | "ip";
+"use client";
 
-export type SocEntityMemory = {
+export type EntityType = "device" | "user" | "ip";
+export type EntityKey = `${EntityType}:${string}`;
+
+export type MemoryEntity = {
+  key: EntityKey;
+  type: EntityType;
   id: string;
-  type: SocEntityType;
-  risk_score: number;
-  first_seen: string;
-  last_seen: string;
-  case_refs: string[];
+
+  risk: number;
+  first_seen: string | null;
+  last_seen: string | null;
+
   tags: string[];
+  case_refs: string[];
 };
 
-const KEY = "soc:memory";
+export type Observation = {
+  caseId?: string;
+  device?: string;
+  user?: string;
+  ip?: string;
 
-export function getMemory(): SocEntityMemory[] {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
+  tags?: string[];
+  riskBump?: number;
+};
 
-export function saveMemory(memory: SocEntityMemory[]) {
-  localStorage.setItem(KEY, JSON.stringify(memory));
-}
+const STORAGE_KEY = "soc_memory_v1";
 
-export function upsertMemory(entity: SocEntityMemory) {
-  const all = getMemory();
-  const idx = all.findIndex((e) => e.id === entity.id && e.type === entity.type);
-  if (idx >= 0) all[idx] = entity;
-  else all.push(entity);
-  saveMemory(all);
-}
+type MemoryState = {
+  entities: Record<string, MemoryEntity>;
+};
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function clampRisk(n: number) {
-  if (Number.isNaN(n)) return 0;
-  return Math.max(0, Math.min(100, n));
+function safeStr(v: any) {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
+function readState(): MemoryState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { entities: {} };
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { entities: {} };
+    if (!parsed.entities || typeof parsed.entities !== "object") return { entities: {} };
+
+    return parsed as MemoryState;
+  } catch {
+    return { entities: {} };
+  }
+}
+
+function writeState(state: MemoryState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function ensureEntity(state: MemoryState, type: EntityType, id: string): MemoryEntity {
+  const cleanId = safeStr(id).trim();
+  const key = `${type}:${cleanId}` as EntityKey;
+
+  const existing = state.entities[key];
+  if (existing) return existing;
+
+  const created: MemoryEntity = {
+    key,
+    type,
+    id: cleanId,
+    risk: 0,
+    first_seen: null,
+    last_seen: null,
+    tags: [],
+    case_refs: [],
+  };
+
+  state.entities[key] = created;
+  return created;
 }
 
 /**
- * Record an observation from a case/investigation into SOC memory.
- * Minimal + safe: add/update device/user/ip, bump risk, attach the case id.
+ * Primary getter used across the app.
  */
-export function recordObservation(params: {
-  caseId: string;
-  device?: string;
-  user?: string;
-  ip?: string;
-  tags?: string[];
-  riskBump?: number; // default 5
-}) {
-  const { caseId, device, user, ip, tags = [], riskBump = 5 } = params;
-
-  const stamp = nowIso();
-
-  const recordOne = (type: SocEntityType, idRaw: string | undefined) => {
-    const id = (idRaw || "").trim();
-    if (!id) return;
-
-    const all = getMemory();
-    const idx = all.findIndex((e) => e.type === type && e.id === id);
-
-    if (idx >= 0) {
-      const existing = all[idx];
-      const mergedTags = Array.from(new Set([...(existing.tags || []), ...tags])).slice(0, 25);
-      const mergedCases = Array.from(new Set([...(existing.case_refs || []), caseId])).slice(0, 200);
-
-      all[idx] = {
-        ...existing,
-        last_seen: stamp,
-        risk_score: clampRisk((existing.risk_score || 0) + riskBump),
-        tags: mergedTags,
-        case_refs: mergedCases,
-      };
-      saveMemory(all);
-      return;
-    }
-
-    const created: SocEntityMemory = {
-      id,
-      type,
-      risk_score: clampRisk(riskBump),
-      first_seen: stamp,
-      last_seen: stamp,
-      case_refs: [caseId],
-      tags: Array.from(new Set(tags)).slice(0, 25),
-    };
-
-    all.push(created);
-    saveMemory(all);
-  };
-
-  recordOne("device", device);
-  recordOne("user", user);
-  recordOne("ip", ip);
+export function getMemory(): MemoryState {
+  return readState();
 }
+
+/**
+ * ✅ Intel Engine expects this exact export name.
+ * Snapshot = safe read-only view (still localStorage),
+ * but returns the same structure as getMemory().
+ */
+export function getMemorySnapshot(): MemoryState {
+  return readState();
+}
+
+/**
+ * Optional helper: clear memory.
+ */
+export function clearMemory() {
+  writeState({ entities: {} });
+}
+
+/**
+ * Record observations from Investigation/Case status changes
+ * and keep entity risk/tags/timestamps aligned.
+ */
+export function recordObservation(obs: Observation) {
+  const state = readState();
+  const t = nowIso();
+
+  const tags = Array.isArray(obs.tags) ? obs.tags.filter(Boolean) : [];
+  const bump = Number(obs.riskBump ?? 0);
+
+  // Device
+  if (obs.device) {
+    const e = ensureEntity(state, "device", obs.device);
+    e.first_seen = e.first_seen || t;
+    e.last_seen = t;
+    e.risk = Math.max(0, e.risk + bump);
+    e.tags = Array.from(new Set([...e.tags, ...tags]));
+    if (obs.caseId) e.case_refs = Array.from(new Set([...e.case_refs, obs.caseId]));
+  }
+
+  // User
+  if (obs.user) {
+    const e = ensureEntity(state, "user", obs.user);
+    e.first_seen = e.first_seen || t;
+    e.last_seen = t;
+    e.risk = Math.max(0, e.risk + bump);
+    e.tags = Array.from(new Set([...e.tags, ...tags]));
+    if (obs.caseId) e.case_refs = Array.from(new Set([...e.case_refs, obs.caseId]));
+  }
+
+  // IP
+  if (obs.ip) {
+    const e = ensureEntity(state, "ip", obs.ip);
+    e.first_seen = e.first_seen || t;
+    e.last_seen = t;
+    e.risk = Math.max(0, e.risk + bump);
+    e.tags = Array.from(new Set([...e.tags, ...tags]));
+    if (obs.caseId) e.case_refs = Array.from(new Set([...e.case_refs, obs.caseId]));
+  }
+
+  writeState(state);
+}
+

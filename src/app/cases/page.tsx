@@ -1,25 +1,79 @@
+// src/app/cases/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+
 import Shell from "@/components/Shell";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
-import { getCases, updateCase, SocCase } from "@/lib/caseStore";
-import { useRouter } from "next/navigation";
+
+import { getCases, SocCase, SocCaseStatus } from "@/lib/caseStore";
+
+type StatusFilter = "all" | SocCaseStatus;
+
+function safe(v: any) {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
 
 export default function CasesPage() {
-  const router = useRouter();
-  const [cases, setCases] = useState<SocCase[]>([]);
+  const [allCases, setAllCases] = useState<SocCase[]>([]);
+  const [status, setStatus] = useState<StatusFilter>("all");
+  const [q, setQ] = useState("");
+
+  const refresh = () => {
+    // IMPORTANT: do NOT filter here (this is the bug you had)
+    const cases = getCases();
+    setAllCases(Array.isArray(cases) ? cases : []);
+  };
 
   useEffect(() => {
-    setCases(getCases());
+    refresh();
   }, []);
 
-  function setStatus(c: SocCase, status: SocCase["status"]) {
-    const updated = { ...c, status };
-    updateCase(updated);
-    setCases(getCases());
-  }
+  const totals = useMemo(() => {
+    const total = allCases.length;
+    const openLike = allCases.filter((c) => c.status !== "closed").length;
+    const investigating = allCases.filter((c) => c.status === "investigating").length;
+    const contained = allCases.filter((c) => c.status === "contained").length;
+    const closed = allCases.filter((c) => c.status === "closed").length;
+    return { total, openLike, investigating, contained, closed };
+  }, [allCases]);
+
+  const filtered = useMemo(() => {
+    let list = [...allCases];
+
+    // status filter
+    if (status !== "all") {
+      list = list.filter((c) => c.status === status);
+    }
+
+    // search filter
+    const query = q.trim().toLowerCase();
+    if (query) {
+      list = list.filter((c) => {
+        const hay = [
+          safe(c.case_id),
+          safe(c.title),
+          safe(c.status),
+          safe(c.device),
+          safe(c.user),
+          safe(c.time),
+          safe(c.created_at),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(query);
+      });
+    }
+
+    return list;
+  }, [allCases, status, q]);
+
+  const pillBase =
+    "rounded border border-slate-700 bg-slate-200/10 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-200/15";
+  const pillActive = "border-slate-500 bg-slate-200/20";
 
   return (
     <Shell>
@@ -28,71 +82,149 @@ export default function CasesPage() {
         <Topbar title="Cases" />
 
         <main className="p-6 space-y-4">
-          <h1 className="text-xl font-semibold">SOC Cases</h1>
-
-          {cases.length === 0 ? (
-            <div className="text-sm text-slate-400">
-              No cases saved yet.
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-semibold">Cases</h1>
+              <div className="text-sm text-slate-300 mt-1">
+                All saved cases from localStorage (open + investigating + contained + closed).
+              </div>
             </div>
-          ) : (
-            <div className="border border-[var(--soc-panel-border)] rounded-lg overflow-hidden bg-[#020617]/80">
+
+            <button
+              onClick={refresh}
+              className="rounded border border-slate-700 bg-slate-200/10 px-3 py-2 text-sm text-slate-200 hover:bg-slate-200/15"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {/* METRICS */}
+          <div className="grid gap-3 md:grid-cols-5">
+            <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
+              <div className="text-xs text-slate-400">Total</div>
+              <div className="text-2xl font-semibold">{totals.total}</div>
+            </div>
+            <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
+              <div className="text-xs text-slate-400">Not Closed</div>
+              <div className="text-2xl font-semibold">{totals.openLike}</div>
+            </div>
+            <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
+              <div className="text-xs text-slate-400">Investigating</div>
+              <div className="text-2xl font-semibold">{totals.investigating}</div>
+            </div>
+            <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
+              <div className="text-xs text-slate-400">Contained</div>
+              <div className="text-2xl font-semibold">{totals.contained}</div>
+            </div>
+            <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
+              <div className="text-xs text-slate-400">Closed</div>
+              <div className="text-2xl font-semibold">{totals.closed}</div>
+            </div>
+          </div>
+
+          {/* FILTERS + SEARCH */}
+          <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setStatus("all")}
+                className={`${pillBase} ${status === "all" ? pillActive : ""}`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setStatus("open")}
+                className={`${pillBase} ${status === "open" ? pillActive : ""}`}
+              >
+                Open
+              </button>
+              <button
+                onClick={() => setStatus("investigating")}
+                className={`${pillBase} ${status === "investigating" ? pillActive : ""}`}
+              >
+                Investigating
+              </button>
+              <button
+                onClick={() => setStatus("contained")}
+                className={`${pillBase} ${status === "contained" ? pillActive : ""}`}
+              >
+                Contained
+              </button>
+              <button
+                onClick={() => setStatus("closed")}
+                className={`${pillBase} ${status === "closed" ? pillActive : ""}`}
+              >
+                Closed
+              </button>
+
+              <div className="flex-1" />
+
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder='Search: "SOC-2026", "orca", "umfd-1", "investigating"'
+                className="w-full md:w-[420px] rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* TABLE */}
+          <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold">Case List</div>
+              <div className="text-xs text-slate-400">Showing {filtered.length}</div>
+            </div>
+
+            <div className="overflow-x-auto rounded border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="bg-[#020617] text-xs text-slate-400 border-b border-slate-800">
+                <thead className="bg-[#050A14] text-slate-300">
                   <tr>
-                    <th className="px-4 py-2 text-left">Case ID</th>
-                    <th className="px-4 py-2 text-left">Title</th>
-                    <th className="px-4 py-2 text-left">Device</th>
-                    <th className="px-4 py-2 text-left">User</th>
-                    <th className="px-4 py-2 text-left">Status</th>
-                    <th className="px-4 py-2 text-left">Actions</th>
+                    <th className="text-left p-2 border-b border-slate-800">Case ID</th>
+                    <th className="text-left p-2 border-b border-slate-800">Title</th>
+                    <th className="text-left p-2 border-b border-slate-800">Status</th>
+                    <th className="text-left p-2 border-b border-slate-800">Device</th>
+                    <th className="text-left p-2 border-b border-slate-800">User</th>
+                    <th className="text-left p-2 border-b border-slate-800">Created</th>
+                    <th className="text-right p-2 border-b border-slate-800">Action</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {cases.map((c) => (
-                    <tr
-                      key={c.case_id}
-                      className="border-b border-slate-900 hover:bg-slate-200/5"
-                    >
-                      <td className="px-4 py-2 font-mono text-xs text-slate-300">
+                  {filtered.map((c) => (
+                    <tr key={c.case_id} className="bg-[#020617]/40 text-slate-200">
+                      <td className="p-2 border-b border-slate-900 whitespace-nowrap">
                         {c.case_id}
                       </td>
-                      <td className="px-4 py-2 text-slate-200">
-                        {c.title}
+                      <td className="p-2 border-b border-slate-900">
+                        {c.title || "(untitled)"}
                       </td>
-                      <td className="px-4 py-2 text-slate-300">
-                        {c.device}
+                      <td className="p-2 border-b border-slate-900">{c.status}</td>
+                      <td className="p-2 border-b border-slate-900">{safe(c.device)}</td>
+                      <td className="p-2 border-b border-slate-900">{safe(c.user)}</td>
+                      <td className="p-2 border-b border-slate-900 whitespace-nowrap">
+                        {safe(c.created_at || c.time)}
                       </td>
-                      <td className="px-4 py-2 text-slate-300">
-                        {c.user}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span className="text-xs px-2 py-1 rounded bg-slate-800 text-slate-200">
-                          {c.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 space-x-2">
-                        <button
-                          onClick={() => router.push("/investigation")}
-                          className="text-xs px-2 py-1 rounded border border-slate-700 text-slate-200 hover:bg-slate-200/10"
+                      <td className="p-2 border-b border-slate-900 text-right whitespace-nowrap">
+                        <Link
+                          href={`/cases/${encodeURIComponent(c.case_id)}`}
+                          className="text-xs underline text-slate-200 hover:text-white"
                         >
                           Open
-                        </button>
-                        {c.status !== "closed" && (
-                          <button
-                            onClick={() => setStatus(c, "closed")}
-                            className="text-xs px-2 py-1 rounded border border-slate-700 text-slate-200 hover:bg-slate-200/10"
-                          >
-                            Close
-                          </button>
-                        )}
+                        </Link>
                       </td>
                     </tr>
                   ))}
+
+                  {!filtered.length ? (
+                    <tr>
+                      <td colSpan={7} className="p-3 text-slate-400 bg-[#020617]/40">
+                        No cases match this filter/search.
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
-          )}
+          </div>
         </main>
       </div>
     </Shell>
