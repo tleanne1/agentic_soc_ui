@@ -1,3 +1,4 @@
+// src/lib/socMemory.ts
 export type SocEntityType = "device" | "user" | "ip";
 
 export type SocEntityMemory = {
@@ -10,7 +11,7 @@ export type SocEntityMemory = {
   tags: string[];
 };
 
-const KEY = "soc:entity-memory"; // ✅ avoids collision with Memory Vault "soc:memory"
+const KEY = "soc:memory";
 
 export function getMemory(): SocEntityMemory[] {
   try {
@@ -22,13 +23,6 @@ export function getMemory(): SocEntityMemory[] {
 
 export function saveMemory(memory: SocEntityMemory[]) {
   localStorage.setItem(KEY, JSON.stringify(memory));
-}
-
-export function findMemoryEntity(type: SocEntityType, idRaw?: string) {
-  const id = (idRaw || "").trim();
-  if (!id) return null;
-  const all = getMemory();
-  return all.find((e) => e.type === type && e.id === id) || null;
 }
 
 export function upsertMemory(entity: SocEntityMemory) {
@@ -61,6 +55,7 @@ export function recordObservation(params: {
   riskBump?: number; // default 5
 }) {
   const { caseId, device, user, ip, tags = [], riskBump = 5 } = params;
+
   const stamp = nowIso();
 
   const recordOne = (type: SocEntityType, idRaw: string | undefined) => {

@@ -1,272 +1,238 @@
-// src/app/cases/[case_id]/page.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import Shell from "@/components/Shell";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
-import { getCaseById, updateCase, deleteCase, SocCase, SocCaseStatus } from "@/lib/caseStore";
+import { getCases, updateCase, deleteCase, SocCase } from "@/lib/caseStore";
+import { recordObservation } from "@/lib/socMemory";
 
-function safeString(v: any) {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "string") return v;
-  try {
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return String(v);
+function riskBumpForStatus(status: SocCase["status"]) {
+  switch (status) {
+    case "investigating":
+      return 5;
+    case "contained":
+      return 15;
+    case "closed":
+      return 0;
+    default:
+      return 3;
   }
 }
 
-function StatusPill({ status }: { status: SocCaseStatus }) {
-  const map: Record<SocCaseStatus, string> = {
-    open: "bg-slate-200/10 text-slate-100 border-slate-700",
-    investigating: "bg-slate-200/10 text-slate-100 border-slate-700",
-    contained: "bg-slate-200/10 text-slate-100 border-slate-700",
-    closed: "bg-slate-950/40 text-slate-400 border-slate-800",
-  };
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${map[status]}`}>
-      {status}
-    </span>
-  );
-}
-
 export default function CaseDetailsPage() {
+  const params = useParams<{ case_id: string }>();
   const router = useRouter();
-  const params = useParams();
 
-  const caseId = useMemo(() => {
-    const raw = (params as any)?.case_id;
-    return Array.isArray(raw) ? raw[0] : raw;
-  }, [params]);
+  const caseId = params?.case_id;
 
   const [socCase, setSocCase] = useState<SocCase | null>(null);
   const [note, setNote] = useState("");
 
   useEffect(() => {
     if (!caseId) return;
-    const c = getCaseById(String(caseId));
-    setSocCase(c);
+    const all = getCases();
+    const found = all.find((c) => c.case_id === caseId) || null;
+    setSocCase(found);
   }, [caseId]);
 
-  function refresh() {
-    if (!caseId) return;
-    setSocCase(getCaseById(String(caseId)));
-  }
+  const status = socCase?.status;
 
-  function setStatus(status: SocCaseStatus) {
+  const evidenceList = useMemo(() => socCase?.evidence || [], [socCase]);
+
+  const onSetStatus = (nextStatus: SocCase["status"]) => {
     if (!socCase) return;
-    updateCase(socCase.case_id, { status });
-    refresh();
-  }
 
-  function addNote() {
+    updateCase(socCase.case_id, { status: nextStatus });
+
+    // record into entity memory
+    recordObservation({
+      caseId: socCase.case_id,
+      device: socCase.device,
+      user: socCase.user,
+      // If you later store IP in case, pass it here too.
+      tags: ["case", `status:${nextStatus}`, "source:case-details"],
+      riskBump: riskBumpForStatus(nextStatus),
+    });
+
+    // refresh local state
+    setSocCase({ ...socCase, status: nextStatus });
+  };
+
+  const onAddNote = () => {
     if (!socCase) return;
     const trimmed = note.trim();
     if (!trimmed) return;
 
     const stamped = `${new Date().toISOString()} — ${trimmed}`;
-    const next = Array.isArray(socCase.analyst_notes) ? [...socCase.analyst_notes, stamped] : [stamped];
+    const nextNotes = [...(socCase.analyst_notes || []), stamped];
 
-    updateCase(socCase.case_id, { analyst_notes: next });
+    updateCase(socCase.case_id, { analyst_notes: nextNotes });
+    setSocCase({ ...socCase, analyst_notes: nextNotes });
     setNote("");
-    refresh();
-  }
+  };
 
-  function onDelete() {
+  const onDelete = () => {
     if (!socCase) return;
-    const ok = confirm(`Delete case ${socCase.case_id}? This cannot be undone.`);
-    if (!ok) return;
     deleteCase(socCase.case_id);
     router.push("/cases");
+  };
+
+  if (!socCase) {
+    return (
+      <div className="min-h-screen bg-[#050A14] text-slate-100">
+        <Topbar />
+        <div className="flex">
+          <Sidebar />
+          <main className="flex-1 p-6">
+            <h1 className="text-2xl font-semibold">Case Details</h1>
+            <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4 text-slate-300">
+              Case not found.
+            </div>
+          </main>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <Shell>
-      <Sidebar />
-      <div className="flex-1 flex flex-col">
-        <Topbar title="Case Details" />
-
-        <main className="p-6 space-y-4">
-          {!socCase ? (
-            <div className="border border-[var(--soc-panel-border)] rounded-lg p-4 bg-[#020617]/80 text-slate-200">
-              <div className="text-sm text-slate-300">Case not found.</div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => router.push("/cases")}
-                  className="rounded-md px-4 py-2 text-sm border border-slate-700 bg-slate-200/10 hover:bg-slate-200/15"
-                >
-                  Back to Cases
-                </button>
+    <div className="min-h-screen bg-[#050A14] text-slate-100">
+      <Topbar />
+      <div className="flex">
+        <Sidebar />
+        <main className="flex-1 p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-semibold">
+                {socCase.case_id} — {socCase.title}
+              </h1>
+              <div className="mt-2 text-sm text-slate-300">
+                <span className="text-slate-400">Device:</span> {socCase.device}{" "}
+                <span className="text-slate-400 ml-4">User:</span> {socCase.user}{" "}
+                <span className="text-slate-400 ml-4">Time:</span> {socCase.time}{" "}
+                <span className="text-slate-400 ml-4">Created:</span>{" "}
+                {socCase.created_at}
               </div>
             </div>
-          ) : (
-            <>
-              {/* Header */}
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-xs text-slate-400">Case</div>
-                  <h1 className="text-xl font-semibold text-slate-100">
-                    {socCase.case_id} — {socCase.title}
-                  </h1>
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                    <StatusPill status={socCase.status} />
-                    <span>Device: <span className="text-slate-200">{socCase.device || "—"}</span></span>
-                    <span>User: <span className="text-slate-200">{socCase.user || "—"}</span></span>
-                    <span>Time: <span className="text-slate-200">{socCase.time || "—"}</span></span>
-                    <span>Created: <span className="text-slate-200">{socCase.created_at || "—"}</span></span>
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => router.push("/cases")}
-                    className="rounded-md px-4 py-2 text-sm border border-slate-700 bg-slate-200/10 hover:bg-slate-200/15"
+            <div className="flex items-center gap-2">
+              <button
+                className="rounded border border-slate-700 bg-[#060C18] px-3 py-2 text-sm"
+                onClick={() => router.push("/cases")}
+              >
+                Back to Cases
+              </button>
+              <button
+                className="rounded border border-red-700 bg-[#12070A] px-3 py-2 text-sm text-red-200"
+                onClick={onDelete}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+
+          {/* STATUS */}
+          <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4">
+            <div className="text-sm font-semibold mb-2">Update status</div>
+            <div className="flex flex-wrap gap-2">
+              {(["open", "investigating", "contained", "closed"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onSetStatus(s)}
+                  className={[
+                    "rounded px-3 py-2 text-sm border",
+                    status === s
+                      ? "border-slate-200 bg-slate-200 text-slate-900 font-semibold"
+                      : "border-slate-700 bg-[#050A14] text-slate-200",
+                  ].join(" ")}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* EVIDENCE */}
+          <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4">
+            <div className="text-sm font-semibold mb-2">
+              Evidence ({evidenceList.length})
+            </div>
+            {evidenceList.length ? (
+              <div className="space-y-3">
+                {evidenceList.map((item, idx) => (
+                  <pre
+                    key={idx}
+                    className="whitespace-pre-wrap rounded border border-slate-800 bg-[#050A14] p-3 text-xs text-slate-200"
                   >
-                    Back to Cases
-                  </button>
+                    {JSON.stringify(item, null, 2)}
+                  </pre>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-slate-400">(none)</div>
+            )}
+          </div>
 
-                  <button
-                    onClick={onDelete}
-                    className="rounded-md px-4 py-2 text-sm border border-slate-800 bg-slate-950/40 text-slate-300 hover:bg-slate-950/55"
+          {/* FINDINGS */}
+          <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4">
+            <div className="text-sm font-semibold mb-2">Findings</div>
+            {Array.isArray(socCase.findings) && socCase.findings.length ? (
+              <ul className="list-disc pl-5 text-sm text-slate-200">
+                {socCase.findings.map((f: any, i: number) => (
+                  <li key={i}>{typeof f === "string" ? f : JSON.stringify(f)}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-slate-400">(none)</div>
+            )}
+          </div>
+
+          {/* BASELINE */}
+          <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4">
+            <div className="text-sm font-semibold mb-2">Baseline note</div>
+            <pre className="whitespace-pre-wrap text-xs text-slate-200">
+              {socCase.baseline_note || "(none)"}
+            </pre>
+          </div>
+
+          {/* NOTES */}
+          <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4">
+            <div className="text-sm font-semibold mb-2">Analyst notes</div>
+
+            <div className="flex gap-2">
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="flex-1 rounded border border-slate-700 bg-[#050A14] px-3 py-2 text-sm text-slate-100 outline-none"
+                placeholder="Add a note…"
+              />
+              <button
+                onClick={onAddNote}
+                className="rounded bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-900"
+              >
+                Add
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {(socCase.analyst_notes || []).length ? (
+                (socCase.analyst_notes || []).map((n, i) => (
+                  <div
+                    key={i}
+                    className="rounded border border-slate-800 bg-[#050A14] p-2 text-xs text-slate-200"
                   >
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              {/* Status actions */}
-              <div className="border border-[var(--soc-panel-border)] rounded-lg bg-[#020617]/80 p-4">
-                <div className="text-xs text-slate-400 mb-2">Update status</div>
-                <div className="flex flex-wrap gap-2">
-                  {(["open", "investigating", "contained", "closed"] as SocCaseStatus[]).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setStatus(s)}
-                      className={[
-                        "rounded-md px-3 py-2 text-sm border transition",
-                        socCase.status === s
-                          ? "bg-slate-200/10 text-slate-100 border-slate-700"
-                          : "bg-slate-950/40 text-slate-300 border-slate-800 hover:bg-slate-950/55",
-                      ].join(" ")}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                {/* Left: Evidence + Findings */}
-                <div className="lg:col-span-2 space-y-4">
-                  {/* Evidence */}
-                  <div className="border border-[var(--soc-panel-border)] rounded-lg bg-[#020617]/80 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[var(--soc-panel-border)] text-xs text-slate-400">
-                      Evidence ({Array.isArray(socCase.evidence) ? socCase.evidence.length : 0})
-                    </div>
-                    <div className="p-4">
-                      {Array.isArray(socCase.evidence) && socCase.evidence.length > 0 ? (
-                        <div className="space-y-3">
-                          {socCase.evidence.map((ev, i) => (
-                            <div key={i} className="rounded-md border border-slate-800 bg-slate-950/40 p-3">
-                              <div className="text-xs text-slate-400 mb-2">Item {i + 1}</div>
-                              <pre className="text-xs text-slate-200 whitespace-pre-wrap break-words">
-                                {safeString(ev)}
-                              </pre>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-slate-400">No evidence saved.</div>
-                      )}
-                    </div>
+                    {n}
                   </div>
-
-                  {/* Findings */}
-                  <div className="border border-[var(--soc-panel-border)] rounded-lg bg-[#020617]/80 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[var(--soc-panel-border)] text-xs text-slate-400">
-                      Findings
-                    </div>
-                    <div className="p-4">
-                      {Array.isArray(socCase.findings) && socCase.findings.length > 0 ? (
-                        <ul className="space-y-2">
-                          {socCase.findings.map((f: any, idx: number) => (
-                            <li key={idx} className="text-sm text-slate-200">
-                              • {String(f?.summary || f?.title || safeString(f))}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <div className="text-sm text-slate-400">No findings saved.</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: Baseline + Notes */}
-                <div className="space-y-4">
-                  {/* Baseline */}
-                  <div className="border border-[var(--soc-panel-border)] rounded-lg bg-[#020617]/80 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[var(--soc-panel-border)] text-xs text-slate-400">
-                      Baseline note
-                    </div>
-                    <div className="p-4">
-                      {socCase.baseline_note ? (
-                        <pre className="text-xs text-slate-200 whitespace-pre-wrap break-words">
-                          {socCase.baseline_note}
-                        </pre>
-                      ) : (
-                        <div className="text-sm text-slate-400">No baseline note saved.</div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Notes */}
-                  <div className="border border-[var(--soc-panel-border)] rounded-lg bg-[#020617]/80 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-[var(--soc-panel-border)] text-xs text-slate-400">
-                      Analyst notes
-                    </div>
-                    <div className="p-4 space-y-3">
-                      <div className="flex gap-2">
-                        <input
-                          value={note}
-                          onChange={(e) => setNote(e.target.value)}
-                          placeholder="Add a note…"
-                          className="flex-1 rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 outline-none"
-                        />
-                        <button
-                          onClick={addNote}
-                          className="rounded-md px-4 py-2 text-sm border border-slate-700 bg-slate-200/10 hover:bg-slate-200/15"
-                        >
-                          Add
-                        </button>
-                      </div>
-
-                      {Array.isArray(socCase.analyst_notes) && socCase.analyst_notes.length > 0 ? (
-                        <div className="space-y-2">
-                          {socCase.analyst_notes.slice().reverse().map((n, idx) => (
-                            <div
-                              key={idx}
-                              className="rounded-md border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-200 whitespace-pre-wrap break-words"
-                            >
-                              {n}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-slate-400">No notes yet.</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
+                ))
+              ) : (
+                <div className="text-sm text-slate-400">(none)</div>
+              )}
+            </div>
+          </div>
         </main>
       </div>
-    </Shell>
+    </div>
   );
 }
