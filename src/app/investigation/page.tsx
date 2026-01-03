@@ -78,37 +78,18 @@ function extractEvidence(e: SelectedEvent) {
   return [e];
 }
 
-const SELECTED_ROW_KEYS = [
-  "soc:selectedRow",
-  "soc:selected_row",
-  "soc:selectedEvent",
-  "soc:selected_event",
-  "soc:investigation:selected",
-  "soc:last_selected",
-];
-
+/**
+ * ✅ LOCKED: Results page stores selected row via engineStore under:
+ * localStorage key = "soc:selectedRow"
+ */
 function loadSelectedEvent(): SelectedEvent | null {
-  // Try localStorage keys
-  for (const key of SELECTED_ROW_KEYS) {
-    const parsed = safeJsonParse<SelectedEvent>(localStorage.getItem(key));
-    if (parsed && typeof parsed === "object") return parsed;
-  }
-
-  // Some implementations store it under sessionStorage
-  for (const key of SELECTED_ROW_KEYS) {
-    const parsed = safeJsonParse<SelectedEvent>(sessionStorage.getItem(key));
-    if (parsed && typeof parsed === "object") return parsed;
-  }
-
+  const parsed = safeJsonParse<SelectedEvent>(localStorage.getItem("soc:selectedRow"));
+  if (parsed && typeof parsed === "object") return parsed;
   return null;
 }
 
 function clearSelectedEvent() {
-  // Optional helper to prevent stale “selected row” being reused after save
-  for (const key of SELECTED_ROW_KEYS) {
-    localStorage.removeItem(key);
-    sessionStorage.removeItem(key);
-  }
+  localStorage.removeItem("soc:selectedRow");
 }
 
 export default function InvestigationPage() {
@@ -184,11 +165,10 @@ export default function InvestigationPage() {
 
       setSavedId(case_id);
 
-      // 3) Clear selected row so Investigation doesn’t re-use stale selection
-      // Comment this out if you prefer to keep the selection for debugging.
+      // ✅ Clear selected row so refresh doesn’t re-use old selection
       clearSelectedEvent();
 
-      // 4) Go to Case Details
+      // Go to Case Details
       router.push(`/cases/${case_id}`);
     } finally {
       setSaving(false);
