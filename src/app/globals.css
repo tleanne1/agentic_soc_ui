@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
   --soc-bg: #020617;
@@ -14,7 +12,8 @@
   --soc-success: #22c55e;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   background: radial-gradient(circle at 20% 20%, #020617, #020617, #020617);
   color: var(--soc-text);
