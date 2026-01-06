@@ -12,7 +12,7 @@ import { buildIntelIndex, scoreSearch, IntelIndex } from "@/lib/intelEngine";
 import { summarizeKillChain } from "@/lib/killChainEngine";
 import { decideSocActions } from "@/lib/socDecisionEngine";
 
-// ✅ NEW UI blocks
+// ✅ UI blocks
 import PostureHeader from "@/components/command-center/PostureHeader";
 import KillChainTimeline from "@/components/command-center/KillChainTimeline";
 import DecisionCards, { DecisionRec } from "@/components/command-center/DecisionCards";
@@ -33,7 +33,15 @@ function pill(txt: string) {
 
 export default function IntelPage() {
   const [index, setIndex] = useState<IntelIndex | null>(null);
+
+  // Global Search (local index search)
   const [q, setQ] = useState("");
+
+  // --- LIVE TELEMETRY SEARCH (engine-backed) ---
+  const ENGINE_URL = process.env.NEXT_PUBLIC_ENGINE_URL || "http://127.0.0.1:8787";
+  const [liveRows, setLiveRows] = useState<any[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<string>("");
 
   useEffect(() => {
     setIndex(buildIntelIndex());
@@ -43,10 +51,50 @@ export default function IntelPage() {
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
-      const qq = url.searchParams.get("q"); // ✅ FIX: remove hidden char
+      const qq = url.searchParams.get("q");
       if (qq) setQ(qq);
     } catch {}
   }, []);
+
+  function toKqlFromInput(input: string) {
+    const s = (input || "").trim();
+    if (!s) return "";
+
+    // If user already typed KQL with pipes, treat as full KQL
+    if (s.includes("|")) return s;
+
+    // If they typed a table name, auto-expand to a safe preview
+    return `${s} | take 25`;
+  }
+
+  async function runLiveSearch(input: string) {
+    const kql = toKqlFromInput(input);
+    if (!kql) return;
+
+    setLiveLoading(true);
+    setLiveError("");
+    setLiveRows([]);
+
+    try {
+      const res = await fetch(`${ENGINE_URL}/api/hunt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kql, hours: 24 }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || `Engine error (${res.status})`);
+      }
+
+      const data = await res.json();
+      setLiveRows(Array.isArray(data?.rows) ? data.rows : []);
+    } catch (e: any) {
+      setLiveError(e?.message || "Live search failed.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
 
   const commandCenter = useMemo(() => {
     if (!index) return null;
@@ -70,20 +118,12 @@ export default function IntelPage() {
     return index.cases.filter((c: any) => String(c.status) !== "closed").length;
   }, [index]);
 
-  /**
-   * ✅ SOC-grade safe normalization:
-   * decideSocActions may return:
-   * - array of recs
-   * - single rec object
-   * - null/undefined
-   * This ensures we always map over an array and never crash.
-   */
   const decisions = useMemo((): DecisionRec[] => {
     if (!index || !commandCenter) return [];
 
     const raw = decideSocActions({
       index,
-      killchain: commandCenter, // ✅ FIX: killChain -> killchain
+      killchain: commandCenter,
     });
 
     const arr = Array.isArray(raw) ? raw : raw ? [raw] : [];
@@ -168,7 +208,7 @@ export default function IntelPage() {
             confidence={commandCenter?.confidence || 0}
           />
 
-          {/* Option A: 3-column layout */}
+          {/* 3-column layout */}
           <div className="grid gap-4 lg:grid-cols-12">
             {/* LEFT COLUMN */}
             <div className="lg:col-span-4 space-y-4">
@@ -184,18 +224,24 @@ export default function IntelPage() {
                 </div>
                 <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
                   <div className="text-xs text-slate-400">Entities in Memory</div>
-                  <div className="text-2xl font-semibold text-slate-100">{Object.keys(index.entities || {}).length}</div>
+                  <div className="text-2xl font-semibold text-slate-100">
+                    {Object.keys(index.entities || {}).length}
+                  </div>
                 </div>
                 <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-3">
                   <div className="text-xs text-slate-400">Lateral Signals</div>
-                  <div className="text-2xl font-semibold text-slate-100">{index.lateralFindings?.length || 0}</div>
+                  <div className="text-2xl font-semibold text-slate-100">
+                    {index.lateralFindings?.length || 0}
+                  </div>
                 </div>
               </div>
 
               {/* Global Search */}
               <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-2">
                 <div className="text-sm font-semibold text-slate-100">Global Search</div>
-                <div className="text-xs text-slate-400">Search across cases, memory entities, campaigns, and edges.</div>
+                <div className="text-xs text-slate-400">
+                  Search across cases, memory entities, campaigns, and edges.
+                </div>
 
                 <input
                   value={q}
@@ -203,6 +249,69 @@ export default function IntelPage() {
                   placeholder='Try: "umfd-1", "orca", "T1110", "ssh"'
                   className="w-full rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 outline-none"
                 />
+
+                {/* --- LIVE TELEMETRY (KQL) SEARCH --- */}
+                <div className="mt-3 rounded border border-slate-800 bg-[#050A14] p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-semibold text-slate-200">
+                      Live Telemetry Search (KQL)
+                    </div>
+                    <div className="text-[11px] text-slate-400">Engine: {ENGINE_URL}</div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-400">
+                    Tip: type a table name like <span className="text-slate-200">Heartbeat</span>{" "}
+                    (auto adds <span className="text-slate-200">| take 25</span>) or paste full KQL.
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => runLiveSearch(q)}
+                      className="rounded border border-slate-700 bg-slate-200/10 px-3 py-2 text-xs text-slate-200 hover:bg-slate-200/15"
+                    >
+                      Run Live
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setLiveRows([]);
+                        setLiveError("");
+                      }}
+                      className="rounded border border-slate-700 bg-transparent px-3 py-2 text-xs text-slate-300 hover:text-white"
+                    >
+                      Clear
+                    </button>
+
+                    {liveLoading ? <span className="text-xs text-slate-400">Running…</span> : null}
+                  </div>
+
+                  {liveError ? (
+                    <div className="text-xs text-red-300 border border-red-900/40 bg-red-950/30 rounded p-2">
+                      {liveError}
+                    </div>
+                  ) : null}
+
+                  {liveRows?.length ? (
+                    <div className="rounded border border-slate-800 overflow-hidden">
+                      <div className="px-3 py-2 text-[11px] text-slate-400 bg-[#020617]/40">
+                        Showing {Math.min(liveRows.length, 10)} of {liveRows.length} rows
+                      </div>
+                      <div className="divide-y divide-slate-800">
+                        {liveRows.slice(0, 10).map((r: any, i: number) => (
+                          <div key={`live-${i}`} className="p-3 text-xs text-slate-200 bg-[#020617]/30">
+                            <pre className="whitespace-pre-wrap break-words">
+{JSON.stringify(r, null, 2)}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500">
+                      No live results yet. Click <span className="text-slate-200">Run Live</span>.
+                    </div>
+                  )}
+                </div>
 
                 {q.trim() ? (
                   <div className="rounded border border-slate-800 overflow-hidden">
@@ -224,7 +333,9 @@ export default function IntelPage() {
                           } else if (type === "entity") {
                             const key = safe(h.key);
                             const [t, ...rest] = key.split(":");
-                            actionHref = `/intel?type=${encodeURIComponent(t)}&id=${encodeURIComponent(rest.join(":"))}`;
+                            actionHref = `/intel?type=${encodeURIComponent(t)}&id=${encodeURIComponent(
+                              rest.join(":")
+                            )}`;
                             actionLabel = "Open in Intel";
                           } else if (type === "edge") {
                             actionHref = `/intel`;
@@ -302,7 +413,9 @@ export default function IntelPage() {
                   })}
                 </div>
 
-                {index.campaigns.length > 10 ? <div className="text-xs text-slate-500">Showing top 10 by risk.</div> : null}
+                {index.campaigns.length > 10 ? (
+                  <div className="text-xs text-slate-500">Showing top 10 by risk.</div>
+                ) : null}
               </div>
             </div>
 
@@ -320,11 +433,12 @@ export default function IntelPage() {
               <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4 space-y-2">
                 <div className="text-sm font-semibold text-slate-100">Evidence Signals</div>
                 <ul className="mt-2 space-y-1 text-sm text-slate-200 list-disc pl-5">
-                  {(commandCenter?.evidence?.signals?.length ? commandCenter.evidence.signals : ["No signals available."]).map(
-                    (s: any, i: number) => (
-                      <li key={`sig-${i}`}>{String(s)}</li>
-                    )
-                  )}
+                  {(commandCenter?.evidence?.signals?.length
+                    ? commandCenter.evidence.signals
+                    : ["No signals available."]
+                  ).map((s: any, i: number) => (
+                    <li key={`sig-${i}`}>{String(s)}</li>
+                  ))}
                 </ul>
               </div>
             </div>
@@ -345,8 +459,8 @@ export default function IntelPage() {
               <div className="rounded border border-[var(--soc-panel-border)] bg-[#020617]/80 p-4">
                 <div className="text-sm font-semibold text-slate-100">Guardrails</div>
                 <div className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  This UI is an inference assistant only. It does not isolate devices, terminate processes, block users, or execute
-                  remediation. Any containment must occur in approved tooling with human validation.
+                  This UI is an inference assistant only. It does not isolate devices, terminate processes, block users, or
+                  execute remediation. Any containment must occur in approved tooling with human validation.
                 </div>
               </div>
             </div>
