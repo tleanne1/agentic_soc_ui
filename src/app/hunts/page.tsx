@@ -2,79 +2,94 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
+
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import { saveRun } from "@/lib/engineStore";
-import { HUNT_TEMPLATES } from "@/lib/huntTemplates";
 
-function hoursFromLabel(label: string) {
-  const m = label.match(/(\d+)/);
-  return m ? Number(m[1]) : 24;
-}
+type EngineRun = {
+  ok: boolean;
+  rows: any[];
+  count?: number;
+  error?: any;
+  meta?: {
+    huntName?: string;
+    hours?: number;
+    device?: string;
+    kql?: string;
+    ranAt?: string;
+  };
+};
 
 export default function HuntsPage() {
   const router = useRouter();
 
-  const [huntName, setHuntName] = React.useState(HUNT_TEMPLATES[0]?.name ?? "Multiple logons (last 24h)");
-  const [hoursLabel, setHoursLabel] = React.useState("Last 24 hours");
-  const [device, setDevice] = React.useState("");
-  const [advanced, setAdvanced] = React.useState(false);
-  const [kqlOverride, setKqlOverride] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
+  const [kql, setKql] = React.useState<string>("Heartbeat | take 10");
   const [loading, setLoading] = React.useState(false);
-
-  const hours = hoursFromLabel(hoursLabel);
-
-  const template = React.useMemo(() => {
-    return HUNT_TEMPLATES.find((t) => t.name === huntName) ?? HUNT_TEMPLATES[0];
-  }, [huntName]);
-
-  const prompt = template?.prompt ?? "";
-
-  const kql = React.useMemo(() => {
-    if (advanced && kqlOverride.trim()) return kqlOverride.trim();
-    return template?.buildKql({ hours, device }) ?? "";
-  }, [advanced, kqlOverride, template, hours, device]);
+  const [err, setErr] = React.useState<string | null>(null);
 
   async function runHunt() {
-    setError(null);
+    const trimmed = kql.trim();
+    if (!trimmed) {
+      setErr("Please enter a KQL query.");
+      return;
+    }
+
     setLoading(true);
+    setErr(null);
 
     try {
+      // ✅ No hours dropdown anymore — default to 24h.
+      // If your engine ignores hours, it's still safe.
       const res = await fetch("/api/run-hunt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        cache: "no-store",
         body: JSON.stringify({
-          kql,
-          hours,
-          device: device.trim() || undefined,
+          kql: trimmed,
+          hours: 24,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const text = await res.text();
 
-      if (!res.ok || !data.ok) {
-        console.error("Engine error:", data);
-        setError(typeof data?.detail === "string" ? data.detail : "Engine error (see console).");
-        setLoading(false);
-        return;
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // non-json error response
+        throw new Error(text || "Unexpected response from /api/run-hunt");
       }
 
-      saveRun({
-        id: `run_${Date.now()}`,
-        createdAt: Date.now(),
-        huntName,
-        prompt,
-        hours,
-        device: device.trim() || undefined,
-        kql,
-        rows: Array.isArray(data.rows) ? data.rows : [],
-        meta: data.meta ?? {},
-      });
+      if (!res.ok || data?.ok === false) {
+        const detail =
+          data?.detail ||
+          data?.error ||
+          data?.message ||
+          `Request failed (${res.status})`;
+        throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      }
 
+      const run: EngineRun = {
+        ok: true,
+        rows: Array.isArray(data?.rows) ? data.rows : [],
+        count: typeof data?.count === "number" ? data.count : undefined,
+        error: data?.error ?? null,
+        meta: {
+          huntName: "Ad-hoc query",
+          hours: 24,
+          kql: trimmed,
+          ranAt: new Date().toISOString(),
+        },
+      };
+
+      // ✅ Save to localStorage so /results can read it
+      saveRun(run);
+
+      // ✅ Go to results page
       router.push("/results");
     } catch (e: any) {
-      setError(String(e?.message ?? e));
+      setErr(String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
@@ -83,85 +98,54 @@ export default function HuntsPage() {
   return (
     <div className="h-screen flex bg-gradient-to-b from-[#030712] to-[#020617] text-slate-100">
       <Sidebar />
-      <div className="flex-1 min-w-0">
-        <Topbar title="Live SOC Console" rightText="Workspace: Lab | Status: Ready" />
-        <main className="p-8">
-          <h1 className="text-2xl font-semibold mb-6">Threat Hunts</h1>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-6 max-w-4xl">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="text-xs text-slate-400">Hunt name</label>
-                <select
-                  className="mt-2 w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2"
-                  value={huntName}
-                  onChange={(e) => setHuntName(e.target.value)}
-                >
-                  {HUNT_TEMPLATES.map((t) => (
-                    <option key={t.name} value={t.name}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="text-xs text-slate-400 mt-2">Prompt: {prompt}</div>
+      <div className="flex-1 min-w-0 flex flex-col">
+        <Topbar title="Threat Hunts" rightText="Live query mode" />
+
+        <main className="p-8 space-y-6">
+          <div>
+            <h1 className="text-2xl font-semibold">Run a Threat Hunt</h1>
+            <p className="mt-2 text-sm text-slate-400">
+              Paste any KQL query below. Example: <span className="text-slate-300">Heartbeat | take 10</span>
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+            <div className="text-xs text-slate-400 mb-2">KQL query</div>
+
+            <textarea
+              value={kql}
+              onChange={(e) => setKql(e.target.value)}
+              className="w-full min-h-[220px] rounded-xl bg-black/30 border border-white/10 px-3 py-3 text-sm text-slate-100 outline-none"
+              placeholder={`Example:\nHeartbeat | take 10\n\nOr:\nSecurityEvent | take 10`}
+            />
+
+            {err ? (
+              <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                {err}
               </div>
+            ) : null}
 
-              <div>
-                <label className="text-xs text-slate-400">Time range (hours)</label>
-                <select
-                  className="mt-2 w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2"
-                  value={hoursLabel}
-                  onChange={(e) => setHoursLabel(e.target.value)}
-                >
-                  <option>Last 1 hour</option>
-                  <option>Last 6 hours</option>
-                  <option>Last 12 hours</option>
-                  <option>Last 24 hours</option>
-                  <option>Last 48 hours</option>
-                  <option>Last 72 hours</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-400">Device (optional)</label>
-                <input
-                  className="mt-2 w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2"
-                  value={device}
-                  onChange={(e) => setDevice(e.target.value)}
-                  placeholder="windows-target-1"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input type="checkbox" checked={advanced} onChange={(e) => setAdvanced(e.target.checked)} />
-                Show Advanced (KQL override)
-              </label>
-            </div>
-
-            {advanced && (
-              <div className="mt-4">
-                <label className="text-xs text-slate-400">KQL override</label>
-                <textarea
-                  className="mt-2 w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 font-mono text-xs min-h-[160px]"
-                  value={kqlOverride}
-                  onChange={(e) => setKqlOverride(e.target.value)}
-                  placeholder={template?.buildKql({ hours, device })}
-                />
-              </div>
-            )}
-
-            {error && <div className="mt-4 text-sm text-red-400">Error: {error}</div>}
-
-            <div className="mt-6 flex justify-end">
+            <div className="mt-4 flex items-center gap-3">
               <button
                 onClick={runHunt}
-                disabled={loading || !kql.trim()}
-                className="rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10 disabled:opacity-50"
+                disabled={loading}
+                className="rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10 disabled:opacity-60"
               >
                 {loading ? "Running..." : "Run Hunt"}
               </button>
+
+              <button
+                onClick={() => setKql("Heartbeat | take 10")}
+                disabled={loading}
+                className="rounded-xl px-4 py-2 bg-black/20 hover:bg-black/30 border border-white/10 disabled:opacity-60"
+              >
+                Reset example
+              </button>
+
+              <div className="text-xs text-slate-500">
+                Default time window: 24h (no dropdown)
+              </div>
             </div>
           </div>
         </main>
