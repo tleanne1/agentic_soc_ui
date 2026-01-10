@@ -18,20 +18,23 @@ type EngineRun = {
     device?: string;
     kql?: string;
     ranAt?: string;
+    input_type?: string;
+    kql_used?: string;
   };
 };
 
 export default function HuntsPage() {
   const router = useRouter();
 
-  const [kql, setKql] = React.useState<string>("Heartbeat | take 10");
+  // ✅ Rename conceptually: this box can be either prompt OR KQL
+  const [input, setInput] = React.useState<string>("Heartbeat | take 10");
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
   async function runHunt() {
-    const trimmed = kql.trim();
+    const trimmed = input.trim();
     if (!trimmed) {
-      setErr("Please enter a KQL query.");
+      setErr("Please enter a prompt or a KQL query.");
       return;
     }
 
@@ -39,13 +42,14 @@ export default function HuntsPage() {
     setErr(null);
 
     try {
-      // ✅ No hours dropdown anymore — default to 24h.
-      // If your engine ignores hours, it's still safe.
+      // ✅ Default to 24h. Smart endpoint can use this.
       const res = await fetch("/api/run-hunt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({
+          // ✅ Keep this as kql for backwards-compat with older engines,
+          // but route.ts will map it into `prompt` for smart endpoint.
           kql: trimmed,
           hours: 24,
         }),
@@ -57,7 +61,6 @@ export default function HuntsPage() {
       try {
         data = JSON.parse(text);
       } catch {
-        // non-json error response
         throw new Error(text || "Unexpected response from /api/run-hunt");
       }
 
@@ -70,23 +73,26 @@ export default function HuntsPage() {
         throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
       }
 
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+
       const run: EngineRun = {
         ok: true,
-        rows: Array.isArray(data?.rows) ? data.rows : [],
-        count: typeof data?.count === "number" ? data.count : undefined,
+        rows,
+        count: typeof data?.count === "number" ? data.count : rows.length,
         error: data?.error ?? null,
         meta: {
-          huntName: "Ad-hoc query",
+          huntName: "Ad-hoc",
           hours: 24,
+          // Keep original user input for reference
           kql: trimmed,
           ranAt: new Date().toISOString(),
+          // If smart endpoint returns these, store them
+          input_type: data?.input_type,
+          kql_used: data?.kql_used,
         },
       };
 
-      // ✅ Save to localStorage so /results can read it
       saveRun(run);
-
-      // ✅ Go to results page
       router.push("/results");
     } catch (e: any) {
       setErr(String(e?.message ?? e));
@@ -100,24 +106,33 @@ export default function HuntsPage() {
       <Sidebar />
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar title="Threat Hunts" rightText="Live query mode" />
+        <Topbar title="Threat Hunts" rightText="Prompt or KQL mode" />
 
         <main className="p-8 space-y-6">
           <div>
             <h1 className="text-2xl font-semibold">Run a Threat Hunt</h1>
             <p className="mt-2 text-sm text-slate-400">
-              Paste any KQL query below. Example: <span className="text-slate-300">Heartbeat | take 10</span>
+              Type a <span className="text-slate-200">natural-language prompt</span> (recommended) or paste{" "}
+              <span className="text-slate-200">raw KQL</span>.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Examples:{" "}
+              <span className="text-slate-300">
+                “check for suspicious logons in the last 24 hours”
+              </span>{" "}
+              or{" "}
+              <span className="text-slate-300">Heartbeat | take 10</span>
             </p>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
-            <div className="text-xs text-slate-400 mb-2">KQL query</div>
+            <div className="text-xs text-slate-400 mb-2">Prompt or KQL</div>
 
             <textarea
-              value={kql}
-              onChange={(e) => setKql(e.target.value)}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
               className="w-full min-h-[220px] rounded-xl bg-black/30 border border-white/10 px-3 py-3 text-sm text-slate-100 outline-none"
-              placeholder={`Example:\nHeartbeat | take 10\n\nOr:\nSecurityEvent | take 10`}
+              placeholder={`Try:\n- check for suspicious logons in the last 24 hours\n- show top devices by logon count\n\nOr raw KQL:\nHeartbeat | take 10`}
             />
 
             {err ? (
@@ -136,16 +151,14 @@ export default function HuntsPage() {
               </button>
 
               <button
-                onClick={() => setKql("Heartbeat | take 10")}
+                onClick={() => setInput("Heartbeat | take 10")}
                 disabled={loading}
                 className="rounded-xl px-4 py-2 bg-black/20 hover:bg-black/30 border border-white/10 disabled:opacity-60"
               >
                 Reset example
               </button>
 
-              <div className="text-xs text-slate-500">
-                Default time window: 24h (no dropdown)
-              </div>
+              <div className="text-xs text-slate-500">Default time window: 24h</div>
             </div>
           </div>
         </main>
