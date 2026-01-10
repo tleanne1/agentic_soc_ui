@@ -12,6 +12,7 @@ export default function ResultsPage() {
   const [query, setQuery] = React.useState("");
   const [deviceFilter, setDeviceFilter] = React.useState("All devices");
   const [selectedRow, setSelectedRow] = React.useState<any>(null);
+  const [copied, setCopied] = React.useState(false);
 
   const router = useRouter();
 
@@ -48,6 +49,7 @@ export default function ResultsPage() {
 
   function onRowClick(row: any) {
     setSelectedRow(row);
+    setCopied(false);
 
     // ✅ THIS is what Investigation needs
     saveSelectedRow(row);
@@ -57,6 +59,26 @@ export default function ResultsPage() {
     if (!selectedRow) return;
     router.push("/investigation");
   }
+
+  function onClearSelection() {
+    setSelectedRow(null);
+    setCopied(false);
+    clearSelectedRow();
+  }
+
+  async function onCopyJson() {
+    if (!selectedRow) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(selectedRow, null, 2));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // ignore
+    }
+  }
+
+  const showingCap = 200;
+  const shownCount = Math.min(filtered.length, showingCap);
 
   return (
     <div className="h-screen flex bg-gradient-to-b from-[#030712] to-[#020617] text-slate-100">
@@ -68,7 +90,8 @@ export default function ResultsPage() {
           <h1 className="text-2xl font-semibold">Results</h1>
 
           <div className="mt-2 text-xs text-slate-400" suppressHydrationWarning>
-            Rows: {mounted ? filtered.length : "—"}
+            Rows: {mounted ? shownCount : "—"}
+            {mounted ? ` (showing up to ${showingCap})` : ""}
           </div>
 
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -100,6 +123,7 @@ export default function ResultsPage() {
                   ].join(" ")}
                   onClick={onInvestigate}
                   disabled={!selectedRow}
+                  title={!selectedRow ? "Select a row to investigate" : "Open Investigation"}
                 >
                   Investigate
                 </button>
@@ -124,7 +148,7 @@ export default function ResultsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.slice(0, 200).map((row: any, idx: number) => {
+                      {filtered.slice(0, showingCap).map((row: any, idx: number) => {
                         const isSelected = selectedRow === row;
                         return (
                           <tr
@@ -136,7 +160,11 @@ export default function ResultsPage() {
                             onClick={() => onRowClick(row)}
                           >
                             {Object.keys(filtered[0] || {}).map((k) => (
-                              <td key={k} className="px-3 py-2 text-slate-100/90 whitespace-nowrap">
+                              <td
+                                key={k}
+                                className="px-3 py-2 text-slate-100/90 max-w-[260px] truncate"
+                                title={String(row?.[k] ?? "")}
+                              >
                                 {String(row?.[k] ?? "")}
                               </td>
                             ))}
@@ -146,20 +174,55 @@ export default function ResultsPage() {
                     </tbody>
                   </table>
                 </div>
-                <div className="px-3 py-2 text-xs text-slate-400 border-t border-white/10">
-                  Showing up to 200 rows for UI performance.
+
+                <div className="px-3 py-2 text-xs text-slate-400 border-t border-white/10 flex items-center justify-between">
+                  <span>Showing up to {showingCap} rows for UI performance.</span>
+                  {filtered.length > showingCap ? (
+                    <span className="text-slate-500">Refine search/filter to narrow results.</span>
+                  ) : null}
                 </div>
               </div>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
-              <h2 className="font-semibold mb-2">Details</h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-semibold">Details</h2>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={onCopyJson}
+                    disabled={!selectedRow}
+                    className={[
+                      "text-xs rounded-lg px-3 py-1 border border-white/10",
+                      selectedRow ? "bg-white/10 hover:bg-white/15" : "bg-white/5 opacity-50 cursor-not-allowed",
+                    ].join(" ")}
+                    title={!selectedRow ? "Select a row first" : "Copy JSON to clipboard"}
+                  >
+                    {copied ? "Copied" : "Copy JSON"}
+                  </button>
+
+                  <button
+                    onClick={onClearSelection}
+                    disabled={!selectedRow}
+                    className={[
+                      "text-xs rounded-lg px-3 py-1 border border-white/10",
+                      selectedRow ? "bg-black/20 hover:bg-black/30" : "bg-white/5 opacity-50 cursor-not-allowed",
+                    ].join(" ")}
+                    title={!selectedRow ? "No selection to clear" : "Clear selection"}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
               {!selectedRow ? (
                 <div className="text-sm text-slate-400">Click a row to view details.</div>
               ) : (
-                <pre className="text-xs whitespace-pre-wrap break-words text-slate-200/90">
-                  {JSON.stringify(selectedRow, null, 2)}
-                </pre>
+                <div className="rounded-xl border border-white/10 bg-black/25 p-3">
+                  <pre className="text-xs whitespace-pre-wrap break-words text-slate-200/90">
+                    {JSON.stringify(selectedRow, null, 2)}
+                  </pre>
+                </div>
               )}
             </div>
           </div>

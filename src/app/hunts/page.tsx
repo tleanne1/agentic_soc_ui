@@ -26,8 +26,8 @@ type EngineRun = {
 export default function HuntsPage() {
   const router = useRouter();
 
-  // ✅ Rename conceptually: this box can be either prompt OR KQL
-  const [input, setInput] = React.useState<string>("Heartbeat | take 10");
+  // ✅ Start empty so nothing "dev-y" shows by default
+  const [input, setInput] = React.useState<string>("");
   const [loading, setLoading] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -117,10 +117,7 @@ export default function HuntsPage() {
             </p>
             <p className="mt-1 text-xs text-slate-500">
               Examples:{" "}
-              <span className="text-slate-300">
-                “check for suspicious logons in the last 24 hours”
-              </span>{" "}
-              or{" "}
+              <span className="text-slate-300">“check for suspicious logons in the last 24 hours”</span> or{" "}
               <span className="text-slate-300">Heartbeat | take 10</span>
             </p>
           </div>
@@ -132,7 +129,13 @@ export default function HuntsPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               className="w-full min-h-[220px] rounded-xl bg-black/30 border border-white/10 px-3 py-3 text-sm text-slate-100 outline-none"
-              placeholder={`Try:\n- check for suspicious logons in the last 24 hours\n- show top devices by logon count\n\nOr raw KQL:\nHeartbeat | take 10`}
+              placeholder={`Try:
+- check for suspicious logons in the last 24 hours
+- show top devices by failed logons
+- list machines with multiple logon failures
+
+Or paste raw KQL:
+Heartbeat | take 10`}
             />
 
             {err ? (
@@ -150,13 +153,7 @@ export default function HuntsPage() {
                 {loading ? "Running..." : "Run Hunt"}
               </button>
 
-              <button
-                onClick={() => setInput("Heartbeat | take 10")}
-                disabled={loading}
-                className="rounded-xl px-4 py-2 bg-black/20 hover:bg-black/30 border border-white/10 disabled:opacity-60"
-              >
-                Reset example
-              </button>
+              {/* ✅ Minimal cleanup: remove "Reset example" button so the page looks less like a dev demo */}
 
               <div className="text-xs text-slate-500">Default time window: 24h</div>
             </div>

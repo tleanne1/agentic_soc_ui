@@ -1,3 +1,4 @@
+// components/Shell.tsx
 "use client";
 
 import React from "react";
@@ -5,7 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 
 export default function Shell({
-  title,
+  title = "",
   children,
 }: {
   title?: string;
@@ -16,8 +17,7 @@ export default function Shell({
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <Topbar />
-        {/* Pages handle their own padding/layout */}
+        <Topbar title={title ?? ""} />
         <div className="flex-1 min-w-0">{children}</div>
       </div>
     </div>

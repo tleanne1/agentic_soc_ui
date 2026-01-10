@@ -62,7 +62,6 @@ function extractIp(e: SelectedEvent) {
 }
 
 function extractFindings(e: SelectedEvent) {
-  // You may already store LLM findings separately — keep this resilient.
   const f = e?.findings || e?.Findings || e?.llm_findings;
   if (!f) return [];
   if (Array.isArray(f)) return f;
@@ -74,12 +73,11 @@ function extractBaselineNote(e: SelectedEvent) {
 }
 
 function extractEvidence(e: SelectedEvent) {
-  // Store a minimal evidence bundle: the selected row + any extra context if present
   return [e];
 }
 
 /**
- * ✅ LOCKED: Results page stores selected row via engineStore under:
+ * Results page stores selected row via engineStore under:
  * localStorage key = "soc:selectedRow"
  */
 function loadSelectedEvent(): SelectedEvent | null {
@@ -124,6 +122,21 @@ export default function InvestigationPage() {
     };
   }, [selected]);
 
+  async function copyJson() {
+    if (!selected) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
+    } catch {
+      // ignore clipboard failures
+    }
+  }
+
+  function clearSelectionAndReturn() {
+    clearSelectedEvent();
+    setSelected(null);
+    router.push("/results");
+  }
+
   const onSaveCase = async () => {
     if (!selected) return;
 
@@ -150,10 +163,8 @@ export default function InvestigationPage() {
         analyst_notes: [],
       };
 
-      // 1) Save case
       saveCase(newCase);
 
-      // 2) Record into SOC Entity Memory (device/user/ip)
       recordObservation({
         caseId: newCase.case_id,
         device: newCase.device,
@@ -165,10 +176,7 @@ export default function InvestigationPage() {
 
       setSavedId(case_id);
 
-      // ✅ Clear selected row so refresh doesn’t re-use old selection
       clearSelectedEvent();
-
-      // Go to Case Details
       router.push(`/cases/${case_id}`);
     } finally {
       setSaving(false);
@@ -176,86 +184,185 @@ export default function InvestigationPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050A14] text-slate-100">
-      <Topbar title="Investigation" />
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 p-6">
-          <h1 className="text-3xl font-semibold">Investigation</h1>
+    <div className="h-screen flex bg-gradient-to-b from-[#030712] to-[#020617] text-slate-100">
+      <Sidebar />
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <Topbar title="Investigation" rightText="Evidence → Case workflow" />
+
+        <main className="p-8 space-y-6">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold">Investigation</h1>
+              <p className="mt-1 text-sm text-slate-400">
+                Review the selected event, capture notes, and promote to a case.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push("/results")}
+                className="rounded-xl px-3 py-2 text-sm bg-black/20 hover:bg-black/30 border border-white/10"
+              >
+                Back to Results
+              </button>
+
+              <button
+                onClick={clearSelectionAndReturn}
+                className="rounded-xl px-3 py-2 text-sm bg-black/20 hover:bg-black/30 border border-white/10"
+                title="Clear selected row and return to Results"
+              >
+                Clear selection
+              </button>
+            </div>
+          </div>
 
           {!selected ? (
-            <div className="mt-4 rounded border border-slate-800 bg-[#060C18] p-4">
-              <div className="text-slate-200">
-                No row selected. Go back to Results, click a row, then click Investigate.
+            <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+              <div className="text-sm text-slate-200">
+                No row selected.
+              </div>
+              <div className="mt-1 text-sm text-slate-400">
+                Go to Results, click a row, then click <span className="text-slate-200">Investigate</span>.
+              </div>
+
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  onClick={() => router.push("/results")}
+                  className="rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10"
+                >
+                  Go to Results
+                </button>
               </div>
             </div>
           ) : (
-            <div className="mt-4 space-y-4">
-              <div className="rounded border border-slate-800 bg-[#060C18] p-4">
-                <div className="text-sm text-slate-300">Source: Selected Result Row</div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* LEFT: Source + Case */}
+              <div className="lg:col-span-2 space-y-6">
+                {/* Source Card */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-slate-400">Source</div>
+                      <div className="text-sm text-slate-200 mt-1">Selected Result Row</div>
+                    </div>
 
-                <div className="mt-2 text-sm text-slate-200">
-                  <span className="text-slate-400">Device:</span> {derived.device || "-"}
-                  <span className="text-slate-400 ml-4">User:</span> {derived.user || "-"}
-                  <span className="text-slate-400 ml-4">Time:</span> {derived.time || "-"}
-                  <span className="text-slate-400 ml-4">IP:</span> {derived.ip || "-"}
+                    <button
+                      onClick={copyJson}
+                      className="text-xs px-3 py-1 rounded-lg bg-black/20 hover:bg-black/30 border border-white/10"
+                      title="Copy selected row as JSON"
+                    >
+                      Copy JSON
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="text-xs text-slate-400">Device</div>
+                      <div className="mt-1 text-slate-100">{derived.device || "—"}</div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="text-xs text-slate-400">User</div>
+                      <div className="mt-1 text-slate-100">{derived.user || "—"}</div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="text-xs text-slate-400">Time</div>
+                      <div className="mt-1 text-slate-100">{derived.time || "—"}</div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                      <div className="text-xs text-slate-400">IP</div>
+                      <div className="mt-1 text-slate-100">{derived.ip || "—"}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Case Card */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Case</div>
+                      <div className="mt-1 text-sm text-slate-400">
+                        Promote this investigation to a SOC case (stored locally for now).
+                      </div>
+                    </div>
+                    {savedId ? (
+                      <span className="text-xs text-slate-300">
+                        Saved: <span className="font-semibold">{savedId}</span>
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="text-xs text-slate-400 mb-2">Case title</div>
+                    <input
+                      value={caseTitle}
+                      onChange={(e) => setCaseTitle(e.target.value)}
+                      className="w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-slate-100 outline-none"
+                      placeholder="Investigation title..."
+                    />
+                  </div>
+
+                  <div className="mt-4 flex items-center gap-3">
+                    <button
+                      onClick={onSaveCase}
+                      disabled={saving}
+                      className="rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10 disabled:opacity-60"
+                    >
+                      {saving ? "Saving..." : "Save as Case"}
+                    </button>
+
+                    <div className="text-xs text-slate-500">
+                      This will archive evidence + metadata and open the Case view.
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="rounded border border-slate-800 bg-[#060C18] p-4">
-                <div className="text-sm font-semibold">Case</div>
-                <div className="mt-2 text-sm text-slate-300">
-                  Save this investigation as a SOC case (stored locally for now).
-                </div>
+              {/* RIGHT: Notes / Findings / Evidence */}
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+                  <div className="text-sm font-semibold mb-2">Baseline note</div>
+                  <div className="text-sm text-slate-400">
+                    {derived.baseline ? (
+                      <pre className="text-xs whitespace-pre-wrap break-words text-slate-200/90 rounded-xl bg-black/25 border border-white/10 p-3">
+                        {derived.baseline}
+                      </pre>
+                    ) : (
+                      "(none)"
+                    )}
+                  </div>
 
-                <div className="mt-3">
-                  <div className="text-xs text-slate-400 mb-1">Case title</div>
-                  <input
-                    value={caseTitle}
-                    onChange={(e) => setCaseTitle(e.target.value)}
-                    className="w-full rounded border border-slate-700 bg-[#050A14] px-3 py-2 text-slate-100 outline-none"
-                    placeholder="Investigation title..."
-                  />
-                </div>
-
-                <div className="mt-3 flex items-center gap-3">
-                  <button
-                    onClick={onSaveCase}
-                    disabled={saving}
-                    className="rounded bg-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-60"
-                  >
-                    {saving ? "Saving..." : "Save as Case"}
-                  </button>
-
-                  {savedId && (
-                    <span className="text-sm text-slate-300">
-                      Saved as <span className="font-semibold">{savedId}</span>
-                    </span>
+                  <div className="text-sm font-semibold mt-5 mb-2">Findings</div>
+                  {Array.isArray(derived.findings) && derived.findings.length ? (
+                    <ul className="list-disc pl-5 text-sm text-slate-200">
+                      {derived.findings.map((f: any, i: number) => (
+                        <li key={i}>{typeof f === "string" ? f : JSON.stringify(f)}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-sm text-slate-400">(none)</div>
                   )}
                 </div>
-              </div>
 
-              <div className="rounded border border-slate-800 bg-[#060C18] p-4">
-                <div className="text-sm font-semibold mb-2">Baseline note</div>
-                <pre className="whitespace-pre-wrap text-xs text-slate-200">
-                  {derived.baseline || "(none)"}
-                </pre>
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold">Evidence</div>
+                    <button
+                      onClick={copyJson}
+                      className="text-xs px-3 py-1 rounded-lg bg-black/20 hover:bg-black/30 border border-white/10"
+                    >
+                      Copy JSON
+                    </button>
+                  </div>
 
-                <div className="text-sm font-semibold mt-4 mb-2">Findings</div>
-                {Array.isArray(derived.findings) && derived.findings.length ? (
-                  <ul className="list-disc pl-5 text-sm text-slate-200">
-                    {derived.findings.map((f: any, i: number) => (
-                      <li key={i}>{typeof f === "string" ? f : JSON.stringify(f)}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-sm text-slate-400">(none)</div>
-                )}
+                  <pre className="text-xs whitespace-pre-wrap break-words text-slate-200/90 rounded-xl bg-black/25 border border-white/10 p-3 max-h-[360px] overflow-auto">
+                    {JSON.stringify(selected, null, 2)}
+                  </pre>
 
-                <div className="text-sm font-semibold mt-4 mb-2">Evidence</div>
-                <pre className="whitespace-pre-wrap text-xs text-slate-200">
-                  {JSON.stringify(selected, null, 2)}
-                </pre>
+                  <div className="mt-2 text-xs text-slate-500">
+                    Evidence is currently the selected row (more sources will be added later).
+                  </div>
+                </div>
               </div>
             </div>
           )}

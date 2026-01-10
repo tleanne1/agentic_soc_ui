@@ -4,7 +4,9 @@
 import React from "react";
 import { useRouter, useParams } from "next/navigation";
 
-import Shell from "@/components/Shell";
+import Sidebar from "@/components/Sidebar";
+import Topbar from "@/components/Topbar";
+
 import { addCaseNote, getCases, setCaseStatus, SocCase, SocCaseStatus } from "@/lib/caseStore";
 
 function fmt(ts: string) {
@@ -22,11 +24,27 @@ function safeString(v: any) {
   return String(v);
 }
 
+function statusBadgeClass(s: SocCaseStatus) {
+  const base =
+    "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] leading-none";
+  switch (s) {
+    case "open":
+      return `${base} border-white/10 bg-white/5 text-slate-200`;
+    case "investigating":
+      return `${base} border-white/10 bg-white/10 text-slate-100`;
+    case "contained":
+      return `${base} border-white/10 bg-white/5 text-slate-200`;
+    case "closed":
+      return `${base} border-white/10 bg-black/20 text-slate-300`;
+    default:
+      return `${base} border-white/10 bg-white/5 text-slate-200`;
+  }
+}
+
 export default function CaseDetailPage() {
   const router = useRouter();
   const params = useParams<{ case_id?: string }>();
 
-  // Next can give string | string[]; normalize + decode
   const raw = params?.case_id;
   const caseId = React.useMemo(() => {
     const val = Array.isArray(raw) ? raw[0] : raw;
@@ -76,15 +94,28 @@ export default function CaseDetailPage() {
     refresh();
   };
 
+  async function copyJson(data: any) {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    } catch {
+      // ignore
+    }
+  }
+
   return (
-    <Shell>
-      <div className="flex-1 min-w-0">
+    <div className="h-screen flex bg-gradient-to-b from-[#030712] to-[#020617] text-slate-100">
+      <Sidebar />
+
+      <div className="flex-1 min-w-0 flex flex-col">
+        <Topbar title="Cases" rightText="Case Details" />
+
         <main className="p-8">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold">Case Details</h1>
-              <div className="mt-1 text-xs text-slate-400" suppressHydrationWarning>
-                Case ID: <span className="text-slate-200">{mounted ? caseId || "—" : "—"}</span>
+              <div className="mt-2 text-xs text-slate-400" suppressHydrationWarning>
+                Case ID:{" "}
+                <span className="text-slate-200">{mounted ? caseId || "—" : "—"}</span>
               </div>
             </div>
 
@@ -95,7 +126,6 @@ export default function CaseDetailPage() {
               >
                 ← Back to Cases
               </button>
-
               <button
                 className="rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10"
                 onClick={refresh}
@@ -109,7 +139,7 @@ export default function CaseDetailPage() {
             <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 text-slate-200">
               <div className="font-semibold mb-1">Case not found</div>
               <div className="text-sm text-slate-400">
-                This case ID doesn’t exist in localStorage (soc:cases). Go back to Cases and try again.
+                This case ID doesn’t exist in local storage. Go back to Cases and try again.
               </div>
             </div>
           ) : (
@@ -120,7 +150,9 @@ export default function CaseDetailPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="text-xs text-slate-400">Title</div>
-                      <div className="text-lg font-semibold text-slate-100">{c.title}</div>
+                      <div className="text-lg font-semibold text-slate-100">
+                        {c.title || "(untitled)"}
+                      </div>
 
                       <div className="mt-3 text-sm text-slate-200/90">
                         <span className="text-slate-400">Device:</span> {c.device || "-"}
@@ -136,12 +168,19 @@ export default function CaseDetailPage() {
                       </div>
                     </div>
 
-                    <div className="min-w-[180px]">
-                      <div className="text-xs text-slate-400 mb-1">Status</div>
+                    <div className="min-w-[220px]">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-400 mb-1">Status</div>
+                        <span className={statusBadgeClass(status)}>
+                          <span className="h-1.5 w-1.5 rounded-full bg-slate-400/70" />
+                          {status}
+                        </span>
+                      </div>
+
                       <select
                         value={status}
                         onChange={(e) => onChangeStatus(e.target.value as SocCaseStatus)}
-                        className="w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-sm text-slate-100"
+                        className="mt-2 w-full rounded-xl bg-black/30 border border-white/10 px-3 py-2 text-sm text-slate-100"
                       >
                         <option value="open">open</option>
                         <option value="investigating">investigating</option>
@@ -150,7 +189,7 @@ export default function CaseDetailPage() {
                       </select>
 
                       <div className="mt-2 text-[11px] text-slate-400">
-                        Updates are stored locally (soc:cases).
+                        Status updates are stored locally.
                       </div>
                     </div>
                   </div>
@@ -180,10 +219,21 @@ export default function CaseDetailPage() {
 
                 {/* Evidence */}
                 <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
-                  <div className="font-semibold mb-2">Evidence</div>
-                  <pre className="text-xs whitespace-pre-wrap break-words text-slate-200/90">
-                    {JSON.stringify(c.evidence ?? [], null, 2)}
-                  </pre>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="font-semibold">Evidence</div>
+                    <button
+                      onClick={() => copyJson(c.evidence ?? [])}
+                      className="rounded-lg px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 border border-white/10"
+                    >
+                      Copy JSON
+                    </button>
+                  </div>
+
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3 max-h-[360px] overflow-auto">
+                    <pre className="text-xs whitespace-pre-wrap break-words text-slate-200/90">
+                      {JSON.stringify(c.evidence ?? [], null, 2)}
+                    </pre>
+                  </div>
                 </div>
               </div>
 
@@ -199,7 +249,7 @@ export default function CaseDetailPage() {
                   />
 
                   <button
-                    className="mt-3 w-full rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10"
+                    className="mt-3 w-full rounded-xl px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/10 disabled:opacity-60"
                     onClick={onAddNote}
                     disabled={!note.trim()}
                   >
@@ -229,6 +279,6 @@ export default function CaseDetailPage() {
           )}
         </main>
       </div>
-    </Shell>
+    </div>
   );
 }
