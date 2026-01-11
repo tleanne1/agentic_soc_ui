@@ -9,6 +9,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   const nav = [
+    { href: "/soc", label: "Dashboard" }, 
     { href: "/hunts", label: "Threat Hunts" },
     { href: "/results", label: "Results" },
     { href: "/investigation", label: "Investigation" },

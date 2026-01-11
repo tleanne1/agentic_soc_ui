@@ -1,3 +1,4 @@
+// src/components/Topbar.tsx
 "use client";
 
 import React from "react";
@@ -5,6 +6,7 @@ import React from "react";
 type Props = {
   title: string;
   rightText?: string;
+  actions?: React.ReactNode; // ✅ new slot
 };
 
 type EngineHealth = {
@@ -13,7 +15,7 @@ type EngineHealth = {
   mode?: string; // "live" | "demo"
 };
 
-export default function Topbar({ title, rightText }: Props) {
+export default function Topbar({ title, rightText, actions }: Props) {
   const [health, setHealth] = React.useState<EngineHealth | null>(null);
 
   React.useEffect(() => {
@@ -41,14 +43,17 @@ export default function Topbar({ title, rightText }: Props) {
 
   return (
     <header className="px-6 py-4 border-b border-white/10 bg-black/20 backdrop-blur">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-300">{title}</div>
+      <div className="flex items-center justify-between gap-4">
+        <div className="text-sm text-slate-300 truncate">{title}</div>
 
         <div className="flex items-center gap-3">
+          {/* ✅ Optional per-page actions (ex: SOC Home buttons) */}
+          {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+
           {/* Mode badge */}
           <span
             className={[
-              "text-xs px-2 py-1 rounded-full border",
+              "text-xs px-2 py-1 rounded-full border whitespace-nowrap",
               isDemo
                 ? "bg-amber-500/10 border-amber-500/30 text-amber-200"
                 : "bg-emerald-500/10 border-emerald-500/30 text-emerald-200",
@@ -59,7 +64,9 @@ export default function Topbar({ title, rightText }: Props) {
           </span>
 
           {/* Existing right-side text (kept) */}
-          {rightText ? <span className="text-xs text-slate-400">{rightText}</span> : null}
+          {rightText ? (
+            <span className="text-xs text-slate-400 whitespace-nowrap">{rightText}</span>
+          ) : null}
         </div>
       </div>
     </header>

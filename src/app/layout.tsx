@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata = {
-  title: "Agentic SOC UI",
-  description: "Agentic SOC UI",
+  title: "Agentic SOC Dashboard",
+  description: "Agentic SOC Dashboard",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -1,4 +1,4 @@
-// components/Shell.tsx
+// src/components/Shell.tsx
 "use client";
 
 import React from "react";
@@ -7,9 +7,13 @@ import Topbar from "@/components/Topbar";
 
 export default function Shell({
   title = "",
+  rightText,
+  topbarActions,
   children,
 }: {
   title?: string;
+  rightText?: string;
+  topbarActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -17,7 +21,7 @@ export default function Shell({
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <Topbar title={title ?? ""} />
+        <Topbar title={title ?? ""} rightText={rightText} actions={topbarActions} />
         <div className="flex-1 min-w-0">{children}</div>
       </div>
     </div>
