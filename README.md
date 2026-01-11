@@ -1,74 +1,88 @@
-🧰 SOC Command & Decision Dashboard
-
+# 🛡️ SOC Command & Decision Dashboard  
 ## Agentic SOC Dashboard
-Author: Tracey Buentello
-Platform Type: SOC Analyst Command Console
-Purpose: Visual interface for SOC threat prioritization & investigation workflows
 
-## Platform Stack
-Next.js App Router
-React / TypeScript
-TailwindCSS
-REST integration with Agentic SOC Engine
+**Author:** Tracey Buentello  
+**Platform Type:** SOC Analyst Command Console  
+**Purpose:** Visual interface for SOC threat prioritization & investigation workflows  
 
-## Purpose
-This dashboard simulates a real SOC command center where analysts:
-View SOC posture
-Track campaigns
-Prioritize investigations
-Review kill-chain assessments
-Review escalation decisions
-Store analyst intelligence
-Navigate cases and entities
+---
 
-## Core SOC Pages
-Page	SOC Function
-/soc	Command dashboard
-/intel	Kill-chain & campaign intelligence
-/cases	Incident investigations
-/memory	Analyst notes & knowledge base
-/hunts	Threat hunting workflows
-/investigation	Active investigations
+## 🧱 Platform Stack
 
-## SOC Dashboard Capabilities
-Dashboard (SOC Home)
-Engine health & mode
-Top severity indicator
-Highest-risk campaign spotlight
-Kill-chain confidence
-SOC decision recommendations
+- Next.js App Router  
+- React + TypeScript  
+- TailwindCSS  
+- REST integration with Agentic SOC Engine  
 
-## Intel Command Center
-Campaign kill-chain inference
-MITRE technique mapping
-Entity correlation graphs
-Lateral movement detection
+---
 
-## Memory Vault
-Persistent analyst notes
-Tag-based intelligence retention
-Knowledge-base building
+## 🎯 Purpose
 
-## Case Management
-SOC-style case organization
-Investigation workflow simulation
+This dashboard simulates a real SOC command center where analysts can:
 
-## Operational Guardrails
-Advisory-only platform
-No automated containment
-No forced remediation
-Designed to reflect SOC review & approval flows
+- View SOC posture  
+- Track campaigns  
+- Prioritize investigations  
+- Review kill-chain assessments  
+- Review escalation decisions  
+- Store analyst intelligence  
+- Navigate cases and entities  
 
-## Why This Matters
-Together, these platforms form a full SOC simulation stack:
-Autonomous detection
-Human-centered decision support
-Executive SOC reporting
-Analyst workflows
-Campaign-level intelligence
-Knowledge retention
+---
 
-This is not a demo dashboard — this is a functional SOC decision engine and command platform.
+## 🗂️ Core SOC Pages
 
-## License
-MIT / Portfolio Use
+| Page | Function |
+|-----|--------|
+| `/soc` | Command dashboard |
+| `/intel` | Kill-chain & campaign intelligence |
+| `/cases` | Incident investigations |
+| `/memory` | Analyst notes & knowledge base |
+| `/hunts` | Threat hunting workflows |
+| `/investigation` | Active investigations |
+
+---
+
+## ⚙️ SOC Dashboard Capabilities
+
+- SOC Home Dashboard  
+- Engine health & mode status  
+- Top severity indicators  
+- Highest-risk campaign spotlight  
+- Kill-chain confidence scoring  
+- SOC decision recommendations  
+- Active investigation timelines  
+- Analyst intelligence storage  
+- Entity & case navigation  
+
+---
+
+## 🔌 Integration
+
+This UI integrates directly with:
+
+> **Agentic SOC Engine (Python)**  
+AI-powered SOC automation for KQL hunting, baselining, kill-chain escalation, and response guidance.
+
+---
+
+## 🧠 Project Vision
+
+To simulate how modern SOC teams operate with:
+- Cognitive AI hunting  
+- Automated triage & escalation  
+- Decision intelligence dashboards  
+- Campaign & kill-chain visualization  
+- Centralized analyst knowledge management  
+
+---
+
+## 📸 Screenshots
+
+_Add screenshots here later_
+
+---
+
+## 🚀 Status
+
+**Active development – Production-style SOC simulation platform**
