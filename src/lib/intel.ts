@@ -14,7 +14,8 @@ export type IntelSummary = {
   byType: Record<SocEntityType, SocEntityMemory[]>;
 };
 
-function safeDateMs(iso?: string) {
+// ✅ Fix: accept string | null | undefined (your memory uses nulls)
+function safeDateMs(iso?: string | null) {
   if (!iso) return 0;
   const t = Date.parse(iso);
   return Number.isNaN(t) ? 0 : t;
