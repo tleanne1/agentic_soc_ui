@@ -17,6 +17,12 @@ export type MemoryEntity = {
   case_refs: string[];
 };
 
+// ✅ Compatibility exports for intel/search modules
+export type SocEntityType = EntityType;
+
+// intel expects `risk_score` + other fields
+export type SocEntityMemory = MemoryEntity & { risk_score: number };
+
 export type Observation = {
   caseId?: string;
   device?: string;
@@ -84,14 +90,22 @@ function ensureEntity(state: MemoryState, type: EntityType, id: string): MemoryE
 }
 
 /**
- * Primary getter used across the app.
+ * Primary getter used across the intel/search UI.
+ * Returns a flat list with `risk_score` for compatibility.
  */
-export function getMemory(): MemoryState {
-  return readState();
+export function getMemory(): SocEntityMemory[] {
+  const state = readState();
+  const entities = Object.values(state.entities || {});
+
+  return entities.map((e) => ({
+    ...e,
+    risk_score: typeof e.risk === "number" ? e.risk : 0,
+  }));
 }
 
 /**
  * ✅ Intel Engine expects this exact export name.
+ * Snapshot shape remains `{ entities: Record<...> }`.
  */
 export function getMemorySnapshot(): MemoryState {
   return readState();
@@ -117,7 +131,7 @@ export function recordObservation(obs: Observation) {
 
   const bump = Number(obs.riskBump ?? 0);
 
-  // NEW: identify ATT&CK technique tags like "T1110", "T1078", etc.
+  // Identify ATT&CK technique tags like "T1110", "T1078", etc.
   const mitreTags = tags.filter((tag) => /^T\d{4,5}$/i.test(tag));
 
   const mergeTags = (existing: string[], incoming: string[]) =>
