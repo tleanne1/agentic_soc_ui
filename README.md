@@ -7,6 +7,20 @@
 
 ---
 
+## 🎥 Live SOC Dashboard Demo
+
+▶ Watch the full demo:  
+https://www.linkedin.com/posts/activity-7416286196068192256-YRpN
+
+This live demo shows:
+- SOC command dashboard workflows
+- Severity triage and kill-chain visualization
+- Investigation navigation & pivot tracking
+- Decision recommendation cards
+- Institutional analyst knowledge preservation
+
+---
+
 ## 🧱 Platform Stack
 
 - Next.js App Router  
